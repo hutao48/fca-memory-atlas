@@ -37,6 +37,8 @@ const ICONS = {
   filter: '<path d="M3 5h18l-7 8v6l-4 2v-8L3 5Z"/>',
   layers: '<path d="m12 3 9 5-9 5-9-5 9-5Z"/><path d="m3 12 9 5 9-5"/><path d="m3 16 9 5 9-5"/>',
   legend: '<path d="M8 6h13M8 12h13M8 18h13"/><circle cx="4" cy="6" r="1.1"/><circle cx="4" cy="12" r="1.1"/><circle cx="4" cy="18" r="1.1"/>',
+  'panel-left': '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9.5 4v16"/><path d="M5.5 9h1.6M5.5 12h1.6M5.5 15h1.6"/>',
+  'panel-right': '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M14.5 4v16"/><path d="M17 9h1.6M17 12h1.6M17 15h1.6"/>',
   star: '<path d="m12 3 2.7 5.8 6.3.8-4.6 4.4 1.2 6.3L12 17.5 6.4 20.3l1.2-6.3L3 9.6l6.3-.8L12 3Z"/>',
   'star-filled': { markup: '<path d="m12 3 2.7 5.8 6.3.8-4.6 4.4 1.2 6.3L12 17.5 6.4 20.3l1.2-6.3L3 9.6l6.3-.8L12 3Z"/>', fill: true },
   eye: '<path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/>',

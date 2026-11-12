@@ -432,3 +432,32 @@ $pnpmMjs = 'C:\Users\<user>\AppData\Local\Programs\DSH NEXT\resources\runtime\x6
 | 单测 | `tools\node.cmd --test tests\unit\plugin\plugin-pure.test.js` → **24/24 PASS**（新增 session-scope 形状判定、子会话过滤+计数器、子会话 Agent 节点仍采集、根会话不受影响） | 本机真实执行输出 |
 
 观察（非插件行为，如实标注）：① 升级前后旧自动记忆的 `workspace:FCA` 标签由其它流程/Lead 回填（插件无历史迁移代码）；② 19:34:26 Runtime pid 14248→52104 为其它 teammate 操作（非本任务），数据目录/数据完整。
+
+---
+
+## 13. 插件 v0.3.x：时间戳 / 子 Agent 全量记忆 / 父子层级 / 上下文恢复（2026-11-13 真实验证）
+
+### 13.1 与 DSH 环境相关的真实结论
+
+| 项 | 真实结果 | 证据 |
+|---|---|---|
+| 事件时间字段 | `SessionEvent.time`（epoch ms）是真实时间来源：`user/message` 有 time、`turn/start` 有 time、子会话首条事件有 time；插件据此写 `occurred_at`(ISO)+`occurred_precision="exact"` | 真实会话日志（session format v4）+ Runtime 记忆 `mem_293f1b1a…`/`mem_87cf63da…` 的 occurred_at（`docs/PLUGIN_INTEGRATION_TEST.md` §12.2） |
+| spawn 提示词形状 | child 会话首条 `user/message`（`source.kind="user"`）即 spawn prompt；父会话通过 `subagent/catalog`（`data.childId`）宣告子会话 → 用于 `children:<id8>` 与父子关系 | 真实事件：`subagent/catalog`（父会话）、child `user/message` seq=9；真实记忆 `mem_63aa5ac5…`/`mem_87cf63da…`（§12.3） |
+| memory↔memory 关系契约 | `POST /api/v1/relations` 支持 `from/to={kind:'memory',id}`；`relation_type` 枚举含 `custom`/`derived_from`；插件用 `custom` + `label:"spawned_subagent"`（达标，无需 fallback），真实关系 `rel_a95800f5…` | Runtime `relations` 服务（`runtime/src/catalog/relations.js`）+ 真实 API 响应 |
+| 提示注入能力（系统提示） | `systemPrompt.section(text)` 静态注入与 `systemPrompt.context({text(context)})` 动态注入均可用；`AssembleContext.agent` 可取会话 id；插件 section `fca-memory-recovery-instruction` **真实出现在 Agent 提示中** | `@deepseek-ai/dsh-system-prompt` `lib/index.js`（`assemble()`/`resolveContext()`）+ 本机真实会话提示观测 |
+| compaction 事件 | 真实会话存在 `compaction/start|prune|summary|end`（FCA 主历史会话实测 22 prune + start/summary/end）；插件按这些真实事件置 `needsRecovery` 并在下一次 prompt 组装渲染恢复提醒，调用 `fca_memory_context` 后清除 | 真实历史会话日志（`session-d9ea76db…`）+ 单测 `plugin/auto-memory: 真实 compaction 事件…`；**限制**：安装 v0.3.x 后本机暂未发生新压缩（`fca_status.compactions.eventsSeen=0`），该路径由真实事件形状单测覆盖，下一次真实压缩自动生效 |
+| 安装/兼容 | v0.3.1 tgz：68,625 B，22 文件，SHA256 `651F764C…`；新目录 `.cache/plugin-relink-v031/package` remove+install（`applied`，0.3.1，未重启 DSH）；`engines.fcaRuntime` 仍 `>=0.1.0 <0.2.0` | `artifacts/plugin/v0.3.1-install-log.json` |
+| id8 规范化 | `session-<uuid>` 的 id8 已修复为去前缀取 8 位（旧 bug `parent-session:session-`），3 条存量记忆 PATCH 修复（HTTP 200）；v0.3.1 新写入 tags 全部 8 位 hex，`tagNormalization.failed=0` | `artifacts/plugin/v0.3.1-tag-repair.json`；记忆 `mem_cfd58ede…` 等 |
+
+### 13.2 可观测（`fca_status.auto_memory`）
+
+- 新增 `subagentSessions{mode,enabled,tag,counters{eventsSeen,turnsSeen,captured,stored,spawnPromptsSeen,toolCallsSeen,toolResultsSeen,childrenTagged,idNormalizeFailed}}`；
+- `relations{type,label,fallbackType,counters{attempted,created,failed,fallbackType,pendingWaiters,tagPatchAttempted,tagPatched,tagPatchFailed,idNormalizeFailed},lastError}`；
+- `tagNormalization{rule,failed,subagentFailed,relationFailed}`；`compactions{eventsSeen,prunes,started,finished,sessions,pendingRecovery,lastAt}`；`recovery{enabled,counters{sessionsMarked,clearedByTool,renders}}`；`context_recovery{enabled,renders,...}`。
+- 真实快照（v0.3.1 进程）：`subagentSessions.stored=2, childrenTagged=1`；`relations.created=1, tagPatched=1`；`tagNormalization.failed=0`；`compactions.eventsSeen=0`；`recovery.enabled=true`。
+
+### 13.3 测试与清理
+
+- 单测 `tools\node.cmd --test tests\unit\plugin\plugin-pure.test.js` → **33/33 PASS**。
+- 测试噪声：先 2 次父子探针的重复记忆对 4 条已真实软删除（`DELETE /api/v1/memory/{id}`）；保留 v0.3.1 最终验证对（`mem_63aa5ac5…` ↔ `mem_87cf63da…`，relation `rel_a95800f5…`）+ 真实 teammate 会话记忆；graph 57→53、memories 50→46（include_deleted 60），证据 `artifacts/plugin/v0.3.1-noise-cleanup.json`。
+- 未覆盖/限制：① 真实 compaction 恢复提醒待下一次真实压缩（当前 0 次，单测覆盖事件形状与渲染逻辑）；② 旧记忆 `occurred_at` 不补齐（任务约定只保证新写入）；③ 父子关系依赖插件运行期间观察父回合与 spawn 事件，插件离线期间的子会话无法建立 relation（tags 兜底仍可渲染默认层级）。

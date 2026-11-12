@@ -1,7 +1,7 @@
 #Requires -Version 5.1
 <#
 .SYNOPSIS
-  FCA Memory Atlas v0.2.0 安装/文件/安装版 Runtime/卸载 最小可靠验证（无 GUI、无报告序列化依赖）。
+  FCA Memory Atlas v0.3.0 安装/文件/安装版 Runtime/卸载 最小可靠验证（无 GUI、无报告序列化依赖）。
 
 .DESCRIPTION
   在 DSH 工具 shell（Low IL 沙箱）内也可稳定运行的口径：
@@ -9,7 +9,10 @@
     2) NSIS 静默安装到隔离目录（/S /D=<Root>\app，per-user）；
     3) 校验关键文件：主程序/resources/app（含 unity-embed.js）/runtime/bin+src/node/
        unity/FCANebulaWebGL（index.html + Build/*.wasm/*.data/*.loader.js/*.framework.js）/
-       dsh_plugin/dsh-plugin-fca-memory-*.tgz / docs / BUILD_INFO(version 0.2.0) / install-report.ini；
+       dsh_plugin/dsh-plugin-fca-memory-<pluginVersion>.tgz / docs / BUILD_INFO(version=<productVersion>) / install-report.ini；
+    3b) v0.3.0 产品 UI 修复/新功能随包检查（文件存在 + 内容断言）：
+       renderer/lib/{hierarchy.js,unity-selection.js,detail-panel.js}、renderer/views/relations.js、
+       index.html 顶栏常驻 btn-toggle-left/right、关系详情关系层级标记、Unity 双向选中桥接标记；
     4) 用安装目录内 node.exe + runtime 源码在隔离数据目录做真实 Runtime 冒烟：
        init → serve → /health → /graph → 写一条记忆 → shutdown；
     5) 静默卸载；校验程序目录移除、测试数据目录保留、17860 真实 Runtime 未受干扰。
@@ -31,7 +34,7 @@ param(
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 $ProjectRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
-if (-not $Root) { $Root = Join-Path $ProjectRoot '.cache\v020-install-verify' }
+if (-not $Root) { $Root = Join-Path $ProjectRoot '.cache\v030-install-verify' }
 $Root = [System.IO.Path]::GetFullPath($Root)
 $InstallDir = Join-Path $Root 'app'
 $DataDir = Join-Path $Root 'data'
@@ -184,6 +187,50 @@ $report.results.epipe_fix = $epipe
 Add-Step 'epipe-fix-in-payload' ($epipe.runtime_isBrokenPipeError -and $epipe.runtime_epipe_handler -and $epipe.logging_consoleBroken) "runtime.js isBrokenPipeError=$($epipe.runtime_isBrokenPipeError) EPIPE=$($epipe.runtime_epipe_handler) logging.consoleBroken=$($epipe.logging_consoleBroken)"
 Add-Step 'unity-webgl-payload-installed' ($unity.index_html -and $unity.wasm -gt 0 -and $unity.data -gt 0 -and $unity.loader -gt 0 -and $unity.framework -gt 0 -and $unity.bytes -gt 10MB) "index=$($unity.index_html) wasm=$($unity.wasm) data=$($unity.data) loader=$($unity.loader) framework=$($unity.framework) size=$([math]::Round($unity.bytes/1MB,1))MB"
 
+# v0.3.0 Unity WebGL 新构建随包检查（体积/文件断言，防止旧构建进入安装包）
+$unityWasmItem = Get-ChildItem -LiteralPath $unityBuild -Filter '*.wasm' -ErrorAction SilentlyContinue | Sort-Object Length -Descending | Select-Object -First 1
+$unityFrameworkItem = Get-ChildItem -LiteralPath $unityBuild -Filter '*.framework.js' -ErrorAction SilentlyContinue | Sort-Object Length -Descending | Select-Object -First 1
+$unityIndexItem = Get-Item -LiteralPath (Join-Path $unityDir 'index.html') -ErrorAction SilentlyContinue
+$indexTitleOk = $false
+if ($unityIndexItem) { $indexTitleOk = ([System.IO.File]::ReadAllText($unityIndexItem.FullName) -match 'FCA Nebula') }
+$unityV030 = [ordered]@{
+  index_bytes = $(if ($unityIndexItem) { $unityIndexItem.Length } else { 0 })
+  wasm_bytes = $(if ($unityWasmItem) { $unityWasmItem.Length } else { 0 })
+  framework_bytes = $(if ($unityFrameworkItem) { $unityFrameworkItem.Length } else { 0 })
+  index_has_unity_title = $indexTitleOk
+}
+$report.results.unity_webgl_v030 = $unityV030
+Add-Step 'unity-webgl-build-v030' ($unityV030.index_bytes -gt 8000 -and $unityV030.wasm_bytes -gt 10MB -and $unityV030.framework_bytes -gt 300KB -and $unityV030.index_has_unity_title) "index=$($unityV030.index_bytes)B wasm=$([math]::Round($unityV030.wasm_bytes/1MB,1))MB framework=$([math]::Round($unityV030.framework_bytes/1KB,1))KB title=$($unityV030.index_has_unity_title)"
+
+# v0.3.0 产品 UI 修复/新功能随包检查（文件存在 + 内容断言）
+$appRenderer = Join-Path $InstallDir 'resources\app\renderer'
+function Get-PayloadText([string]$rel) {
+  $p = Join-Path $InstallDir $rel
+  if (Test-Path -LiteralPath $p) { return [System.IO.File]::ReadAllText($p) }
+  return ''
+}
+$indexHtmlText = Get-PayloadText 'resources\app\renderer\index.html'
+$detailPanelText = Get-PayloadText 'resources\app\renderer\lib\detail-panel.js'
+$unitySelectionText = Get-PayloadText 'resources\app\renderer\lib\unity-selection.js'
+$hierarchyText = Get-PayloadText 'resources\app\renderer\lib\hierarchy.js'
+$relationsText = Get-PayloadText 'resources\app\renderer\views\relations.js'
+$atlasText = Get-PayloadText 'resources\app\renderer\views\atlas.js'
+$ui = [ordered]@{
+  unity_selection_module = Test-Path -LiteralPath (Join-Path $appRenderer 'lib\unity-selection.js')
+  hierarchy_module = Test-Path -LiteralPath (Join-Path $appRenderer 'lib\hierarchy.js')
+  detail_panel = Test-Path -LiteralPath (Join-Path $appRenderer 'lib\detail-panel.js')
+  toggle_buttons = ($indexHtmlText -match 'btn-toggle-left' -and $indexHtmlText -match 'btn-toggle-right')
+  relation_detail_marker = ($relationsText -match 'relation-detail')
+  relation_hierarchy_marker = ($relationsText -match 'relation-detail-hierarchy')
+  hierarchy_section_marker = ($detailPanelText -match 'detail__hierarchy')
+  unity_select_bridge = ($unitySelectionText -match 'fca-unity-select')
+  atlas_select_handler = ($atlasText -match 'UNITY_SELECT_MESSAGE')
+  hierarchy_child_tag = ($hierarchyText -match 'subagent-session:')
+}
+$report.results.ui_fixes = $ui
+$uiOk = $ui.unity_selection_module -and $ui.hierarchy_module -and $ui.detail_panel -and $ui.toggle_buttons -and $ui.relation_detail_marker -and $ui.relation_hierarchy_marker -and $ui.hierarchy_section_marker -and $ui.unity_select_bridge -and $ui.atlas_select_handler -and $ui.hierarchy_child_tag
+Add-Step 'ui-fixes-in-payload' $uiOk "modules=$($ui.unity_selection_module -and $ui.hierarchy_module -and $ui.detail_panel) toggle=$($ui.toggle_buttons) relationDetail=$($ui.relation_detail_marker) relationHierarchy=$($ui.relation_hierarchy_marker) hierarchySection=$($ui.hierarchy_section_marker) unitySelect=$($ui.unity_select_bridge) atlasHandler=$($ui.atlas_select_handler) childTag=$($ui.hierarchy_child_tag)"
+
 # DSH plugin tgz
 $pluginDir = Join-Path $InstallDir 'dsh_plugin'
 $pluginTgz = @(Get-ChildItem -LiteralPath $pluginDir -Filter 'dsh-plugin-fca-memory-*.tgz' -ErrorAction SilentlyContinue | Sort-Object Name -Descending | Select-Object -First 1)
@@ -195,6 +242,13 @@ $buildInfo = Read-JsonFile (Join-Path $InstallDir 'BUILD_INFO.json')
 $expectedVersion = if ($meta) { [string]$meta.version } else { '0.2.0' }
 $report.results.build_info = [ordered]@{ version = $buildInfo.version; built_at = $buildInfo.built_at; unity_included = [bool]($buildInfo.optional_components -and $buildInfo.optional_components.unity_nebula_webgl -and $buildInfo.optional_components.unity_nebula_webgl.included); dsh_plugin_included = [bool]($buildInfo.optional_components -and $buildInfo.optional_components.dsh_plugin -and $buildInfo.optional_components.dsh_plugin.included); checks = $buildInfo.checks }
 Add-Step 'build-info-version' ([string]$buildInfo.version -eq $expectedVersion) "version=$($buildInfo.version) built_at=$($buildInfo.built_at) unity=$($report.results.build_info.unity_included) dsh_plugin=$($report.results.build_info.dsh_plugin_included) unity_renderer_present=$($buildInfo.checks.unity_renderer_present)"
+
+# DSH 插件版本随包一致：BUILD_INFO.optional_components.dsh_plugin.version 必须与安装目录 tgz 文件名匹配
+$expectedPlugin = if ($buildInfo.optional_components -and $buildInfo.optional_components.dsh_plugin) { [string]$buildInfo.optional_components.dsh_plugin.version } else { $null }
+$pluginVersionMatch = ($expectedPlugin -and $report.results.dsh_plugin.tgz -eq "dsh-plugin-fca-memory-$expectedPlugin.tgz")
+$report.results.dsh_plugin.expected_version = $expectedPlugin
+$report.results.dsh_plugin.version_match = [bool]$pluginVersionMatch
+Add-Step 'dsh-plugin-version-match' ([bool]$pluginVersionMatch) "expected=$expectedPlugin installed=$($report.results.dsh_plugin.tgz)"
 
 $iniRaw = [System.IO.File]::ReadAllText((Join-Path $InstallDir 'install-report.ini'))
 $unityIni = if ($iniRaw -match 'unity_nebula_webgl=([^\r\n]+)') { $Matches[1].Trim() } else { $null }

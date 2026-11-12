@@ -148,6 +148,9 @@ namespace FCANebula
                 minWorldSizeFactor = Mathf.Tan(_camera.fieldOfView * 0.5f * Mathf.Deg2Rad) * 2f * (6.5f / Screen.height);
             }
             float nodeScale = _profile.NodeScale;
+            float dt = Mathf.Max(0.0001f, Time.unscaledDeltaTime);
+            float positionLerp = 1f - Mathf.Exp(-12f * dt);
+            float visibilityLerp = 1f - Mathf.Exp(-8f * dt);
 
             Vector3 bufferMin = new Vector3(float.MaxValue, float.MaxValue, float.MaxValue);
             Vector3 bufferMax = new Vector3(float.MinValue, float.MinValue, float.MinValue);
@@ -155,25 +158,41 @@ namespace FCANebula
             for (int i = 0; i < count; i++)
             {
                 LayoutNode node = _layout.Nodes[i];
-                float distance = Vector3.Distance(cameraPosition, node.Position);
+                // Animate toward the target position / visibility (hierarchy expansion, graph
+                // refreshes). Folded sub-agent nodes fade out and are skipped entirely.
+                node.VisualPosition = Vector3.Lerp(node.VisualPosition, node.Position, positionLerp);
+                float targetVisibility = node.IsVisible ? 1f : 0f;
+                node.VisualVisibility = Mathf.Lerp(node.VisualVisibility, targetVisibility, visibilityLerp);
+                if (node.VisualVisibility < 0.02f)
+                {
+                    continue;
+                }
+
+                Vector3 visualPosition = node.VisualPosition;
+                float distance = Vector3.Distance(cameraPosition, visualPosition);
                 float worldSize = node.Size * nodeScale;
                 if (minWorldSizeFactor > 0f)
                 {
                     worldSize = Mathf.Max(worldSize, distance * minWorldSizeFactor);
                 }
+                // Scale in/out while the hierarchy animation fades.
+                worldSize *= 0.70f + 0.30f * node.VisualVisibility;
                 float half = worldSize * 0.5f;
-                Vector3 center = node.Position;
+                Vector3 center = visualPosition;
                 Vector3 right = cameraRight * half;
                 Vector3 up = cameraUp * half;
 
                 bool isSelected = SelectedNode != null && ReferenceEquals(SelectedNode, node);
                 bool isHovered = HoveredNode != null && ReferenceEquals(HoveredNode, node);
                 float brightness = (0.90f + 1.5f * node.Brightness) * (isSelected ? 1.25f : 1f);
+                brightness *= 0.35f + 0.65f * node.VisualVisibility;
                 Color tint = ThemePalette.ToShader(node.TintSrgb);
                 // Vertex colour alpha carries the deterministic twinkle phase.
                 float phase = WorkspaceSpiralLayout.Hash01(node.Id, 0xA511E9B3u);
                 Color vertexColor = new Color(tint.r * brightness, tint.g * brightness, tint.b * brightness, phase);
-                Vector2 extra = new Vector2(isSelected ? 1f : 0f, isHovered ? 1f : 0f);
+                // extra.y: 0 normal, 1 hovered, 2 expandable parent, 3 parent+hovered
+                float extraY = (node.IsParent ? 2f : 0f) + (isHovered ? 1f : 0f);
+                Vector2 extra = new Vector2(isSelected ? 1f : 0f, extraY);
 
                 _vertexList.Add(center - right - up);
                 _vertexList.Add(center + right - up);
@@ -239,14 +258,18 @@ namespace FCANebula
             for (int i = 0; i < _layout.Nodes.Count; i++)
             {
                 LayoutNode node = _layout.Nodes[i];
-                Vector3 projected = _camera.WorldToScreenPoint(node.Position);
+                if (!node.IsVisible || node.VisualVisibility < 0.35f)
+                {
+                    continue;
+                }
+                Vector3 projected = _camera.WorldToScreenPoint(node.VisualPosition);
                 if (projected.z <= 0f)
                 {
                     continue;
                 }
                 Vector2 delta = new Vector2(projected.x, projected.y) - screenPosition;
                 float distance = delta.magnitude;
-                float worldDistance = Vector3.Distance(_camera.transform.position, node.Position);
+                float worldDistance = Vector3.Distance(_camera.transform.position, node.VisualPosition);
                 float pixels = node.Size * Screen.height / Mathf.Max(1f, 2f * worldDistance * Mathf.Tan(_camera.fieldOfView * 0.5f * Mathf.Deg2Rad));
                 float radius = Mathf.Max(10f, pixels * 0.95f);
                 if (distance <= radius && distance < bestDistance)

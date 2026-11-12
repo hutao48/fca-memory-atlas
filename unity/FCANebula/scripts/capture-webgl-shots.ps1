@@ -14,94 +14,94 @@
 
 [CmdletBinding()]
 param(
-    [string]$RuntimeUrl = 'http://127.0.0.1:17860',
-    [string]$TokenFile = '',
-    [string]$OutDir = '',
-    [int]$Port = 18080,
+    [string]cRuntimeUrl = 'http://127.0.0.1:17860',
+    [string]cTokenFile = '',
+    [string]cOutDir = '',
+    [int]cPort = 18080,
     [ValidateSet('off', 'low', 'medium', 'high', 'ultra')]
-    [string]$Quality = 'low',
-    [string]$Viewport = '1280x800',
-    [int]$VirtualTimeBudgetMs = 60000,
-    [string]$EdgePath = 'C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe',
-    [switch]$KeepServer
+    [string]cQuality = 'low',
+    [string]cViewport = '1280x800',
+    [int]cVirtualTimeBudgetMs = 60000,
+    [string]cEdgePath = 'C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe',
+    [switch]cKeepServer
 )
 
-$ErrorActionPreference = 'Stop'
+cErrorActionPreference = 'Stop'
 
-$RepoRoot = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))
-$WebGLRoot = Join-Path $RepoRoot 'artifacts\unity\FCANebulaWebGL'
-$ServeScript = Join-Path $PSScriptRoot 'serve-webgl.py'
-if (-not $OutDir) { $OutDir = Join-Path $RepoRoot 'artifacts\unity\webgl-shots' }
-New-Item -ItemType Directory -Force -Path $OutDir | Out-Null
-$LogDir = Join-Path $OutDir 'logs'
-New-Item -ItemType Directory -Force -Path $LogDir | Out-Null
+cRepoRoot = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent cPSScriptRoot))
+cWebGLRoot = Join-Path cRepoRoot 'artifacts\unity\FCANebulaWebGL'
+cServeScript = Join-Path cPSScriptRoot 'serve-webgl.py'
+if (-not cOutDir) { cOutDir = Join-Path cRepoRoot 'artifacts\unity\webgl-shots' }
+New-Item -ItemType Directory -Force -Path cOutDir | Out-Null
+cLogDir = Join-Path cOutDir 'logs'
+New-Item -ItemType Directory -Force -Path cLogDir | Out-Null
 
-if (-not (Test-Path (Join-Path $WebGLRoot 'index.html'))) {
-    throw "WebGL build missing: $WebGLRoot\index.html. Run BuildScript.BuildWebGL first."
+if (-not (Test-Path (Join-Path cWebGLRoot 'index.html'))) {
+    throw "WebGL build missing: cWebGLRoot\index.html. Run BuildScript.BuildWebGL first."
 }
-if (-not (Test-Path $EdgePath)) {
-    throw "Edge/Chrome not found: $EdgePath (pass -EdgePath)"
+if (-not (Test-Path cEdgePath)) {
+    throw "Edge/Chrome not found: cEdgePath (pass -EdgePath)"
 }
 
 # --- bearer token ---------------------------------------------------------
-$candidates = @()
-if ($TokenFile) { $candidates += $TokenFile }
-if ($env:FCA_HOME) { $candidates += (Join-Path $env:FCA_HOME 'config\runtime-token') }
-if ($env:LOCALAPPDATA) { $candidates += (Join-Path $env:LOCALAPPDATA 'FCA-Memory-Atlas\config\runtime-token') }
-$candidates += (Join-Path $env:LOCALAPPDATA 'FCA-Memory-Atlas\config\runtime-token')
-$resolvedTokenFile = $null
-foreach ($candidate in $candidates) {
-    if ($candidate -and (Test-Path $candidate)) { $resolvedTokenFile = $candidate; break }
+ccandidates = @()
+if (cTokenFile) { ccandidates += cTokenFile }
+if (cenv:FCA_HOME) { ccandidates += (Join-Path cenv:FCA_HOME 'config\runtime-token') }
+if (cenv:LOCALAPPDATA) { ccandidates += (Join-Path cenv:LOCALAPPDATA 'FCA-Memory-Atlas\config\runtime-token') }
+ccandidates += '<FCA_DATA_DIR>\config\runtime-token'
+cresolvedTokenFile = cnull
+foreach (ccandidate in ccandidates) {
+    if (ccandidate -and (Test-Path ccandidate)) { cresolvedTokenFile = ccandidate; break }
 }
-if (-not $resolvedTokenFile) {
+if (-not cresolvedTokenFile) {
     throw "runtime-token not found. Pass -TokenFile <path>."
 }
-$token = (Get-Content $resolvedTokenFile -Raw).Trim()
-Write-Host "[shots] token file: $resolvedTokenFile (length $($token.Length))"
+ctoken = (Get-Content cresolvedTokenFile -Raw).Trim()
+Write-Host "[shots] token file: cresolvedTokenFile (length c(ctoken.Length))"
 
 # --- static server --------------------------------------------------------
-$pythonCandidates = @(
+cpythonCandidates = @(
     'C:\Users\<user>\AppData\Local\Programs\Python\Python314\python.exe',
     'python',
     'py'
 )
-$python = $null
-foreach ($candidate in $pythonCandidates) {
-    $command = Get-Command $candidate -ErrorAction SilentlyContinue
-    if ($command) { $python = $command.Source; break }
-    if ((Test-Path $candidate)) { $python = $candidate; break }
+cpython = cnull
+foreach (ccandidate in cpythonCandidates) {
+    ccommand = Get-Command ccandidate -ErrorAction SilentlyContinue
+    if (ccommand) { cpython = ccommand.Source; break }
+    if ((Test-Path ccandidate)) { cpython = ccandidate; break }
 }
-if (-not $python) {
+if (-not cpython) {
     throw "Python not found. Install python or start a static server manually (see docs §WebGL)."
 }
 
-$serverLog = Join-Path $LogDir 'webgl-server.log'
-$serverErr = Join-Path $LogDir 'webgl-server.err.log'
-Remove-Item $serverLog, $serverErr -ErrorAction SilentlyContinue
-$serverArgs = @('"' + $ServeScript + '"', '--root', ('"' + $WebGLRoot + '"'), '--port', $Port, '--bind', '127.0.0.1')
-$server = Start-Process -FilePath $python -ArgumentList ($serverArgs -join ' ') -PassThru -NoNewWindow `
-    -RedirectStandardOutput $serverLog -RedirectStandardError $serverErr
-Write-Host "[shots] static server pid=$($server.Id) http://127.0.0.1:$Port/"
+cserverLog = Join-Path cLogDir 'webgl-server.log'
+cserverErr = Join-Path cLogDir 'webgl-server.err.log'
+Remove-Item cserverLog, cserverErr -ErrorAction SilentlyContinue
+cserverArgs = @('"' + cServeScript + '"', '--root', ('"' + cWebGLRoot + '"'), '--port', cPort, '--bind', '127.0.0.1')
+cserver = Start-Process -FilePath cpython -ArgumentList (cserverArgs -join ' ') -PassThru -NoNewWindow `
+    -RedirectStandardOutput cserverLog -RedirectStandardError cserverErr
+Write-Host "[shots] static server pid=c(cserver.Id) http://127.0.0.1:cPort/"
 
 try {
-    $ready = $false
-    for ($i = 0; $i -lt 40; $i++) {
+    cready = cfalse
+    for (ci = 0; ci -lt 40; ci++) {
         Start-Sleep -Milliseconds 250
         try {
-            $response = Invoke-WebRequest -UseBasicParsing -Uri "http://127.0.0.1:$Port/index.html" -TimeoutSec 2
-            if ($response.StatusCode -eq 200) { $ready = $true; break }
+            cresponse = Invoke-WebRequest -UseBasicParsing -Uri "http://127.0.0.1:cPort/index.html" -TimeoutSec 2
+            if (cresponse.StatusCode -eq 200) { cready = ctrue; break }
         } catch { }
     }
-    if (-not $ready) { throw "static server did not become ready on port $Port (see $serverErr)" }
+    if (-not cready) { throw "static server did not become ready on port cPort (see cserverErr)" }
 
-    $tokenEncoded = [uri]::EscapeDataString($token)
-    $runtimeEncoded = [uri]::EscapeDataString($RuntimeUrl)
-    $viewportParts = $Viewport -split 'x'
-    $viewportWidth = [int]$viewportParts[0]
-    $viewportHeight = [int]$viewportParts[1]
+    ctokenEncoded = [uri]::EscapeDataString(ctoken)
+    cruntimeEncoded = [uri]::EscapeDataString(cRuntimeUrl)
+    cviewportParts = cViewport -split 'x'
+    cviewportWidth = [int]cviewportParts[0]
+    cviewportHeight = [int]cviewportParts[1]
 
-    $userDataDir = Join-Path $env:TEMP ('fca-edge-headless-' + [guid]::NewGuid().ToString('N').Substring(0, 8))
-    $edgeCommon = @(
+    cuserDataDir = Join-Path cenv:TEMP ('fca-edge-headless-' + [guid]::NewGuid().ToString('N').Substring(0, 8))
+    cedgeCommon = @(
         '--headless=new',
         '--no-sandbox',
         '--no-first-run',
@@ -113,125 +113,125 @@ try {
         '--use-angle=swiftshader',
         '--ignore-gpu-blocklist',
         '--enable-webgl',
-        "--window-size=$viewportWidth,$viewportHeight",
-        "--user-data-dir=$userDataDir"
+        "--window-size=cviewportWidth,cviewportHeight",
+        "--user-data-dir=cuserDataDir"
     )
 
-    function Build-Url([int]$view) {
-        return "http://127.0.0.1:$Port/index.html?runtime-url=$runtimeEncoded&token=$tokenEncoded&quality=$Quality&view=$view&auto-rotate=0&labels=1&poll=3"
+    function Build-Url([int]cview) {
+        return "http://127.0.0.1:cPort/index.html?runtime-url=cruntimeEncoded&token=ctokenEncoded&quality=cQuality&view=cview&auto-rotate=0&labels=1&poll=3"
     }
 
-    function Invoke-Edge([string]$label, [string[]]$arguments, [string]$stdoutPath, [string]$stderrPath) {
-        $process = Start-Process -FilePath $EdgePath -ArgumentList ($arguments -join ' ') -PassThru `
-            -RedirectStandardOutput $stdoutPath -RedirectStandardError $stderrPath -NoNewWindow
-        if (-not $process.WaitForExit(240000)) {
-            try { $process.Kill() } catch { }
-            throw "Edge run '$label' timed out after 240s"
+    function Invoke-Edge([string]clabel, [string[]]carguments, [string]cstdoutPath, [string]cstderrPath) {
+        cprocess = Start-Process -FilePath cEdgePath -ArgumentList (carguments -join ' ') -PassThru `
+            -RedirectStandardOutput cstdoutPath -RedirectStandardError cstderrPath -NoNewWindow
+        if (-not cprocess.WaitForExit(240000)) {
+            try { cprocess.Kill() } catch { }
+            throw "Edge run 'clabel' timed out after 240s"
         }
-        return $process.ExitCode
+        return cprocess.ExitCode
     }
 
-    $files = @()
-    for ($view = 0; $view -lt 3; $view++) {
-        $shotPath = Join-Path $OutDir ("webgl-view-$view.png")
-        if (Test-Path $shotPath) { Remove-Item $shotPath -Force }
-        $stdout = Join-Path $LogDir ("edge-view-$view.out.log")
-        $stderr = Join-Path $LogDir ("edge-view-$view.err.log")
-        $arguments = $edgeCommon + @(
-            "--virtual-time-budget=$VirtualTimeBudgetMs",
-            "--screenshot=$shotPath",
-            (Build-Url $view)
+    cfiles = @()
+    for (cview = 0; cview -lt 3; cview++) {
+        cshotPath = Join-Path cOutDir ("webgl-view-cview.png")
+        if (Test-Path cshotPath) { Remove-Item cshotPath -Force }
+        cstdout = Join-Path cLogDir ("edge-view-cview.out.log")
+        cstderr = Join-Path cLogDir ("edge-view-cview.err.log")
+        carguments = cedgeCommon + @(
+            "--virtual-time-budget=cVirtualTimeBudgetMs",
+            "--screenshot=cshotPath",
+            (Build-Url cview)
         )
-        Write-Host "[shots] capturing view=$view -> $shotPath"
-        $exit = Invoke-Edge "view-$view" $arguments $stdout $stderr
-        if (-not (Test-Path $shotPath)) {
-            throw "screenshot missing for view $view (edge exit=$exit, see $stderr)"
+        Write-Host "[shots] capturing view=cview -> cshotPath"
+        cexit = Invoke-Edge "view-cview" carguments cstdout cstderr
+        if (-not (Test-Path cshotPath)) {
+            throw "screenshot missing for view cview (edge exit=cexit, see cstderr)"
         }
-        $size = (Get-Item $shotPath).Length
-        Write-Host ("[shots]   -> {0:N1} KB" -f ($size / 1KB))
-        if ($size -lt 20000) {
-            Write-Warning "view $view screenshot is suspiciously small ($size bytes); check $stderr"
+        csize = (Get-Item cshotPath).Length
+        Write-Host ("[shots]   -> {0:N1} KB" -f (csize / 1KB))
+        if (csize -lt 20000) {
+            Write-Warning "view cview screenshot is suspiciously small (csize bytes); check cstderr"
         }
-        $files += $shotPath
+        cfiles += cshotPath
     }
 
     # --- page state (for the manifest) -------------------------------------------------
-    $state = $null
+    cstate = cnull
     try {
-        $domOut = Join-Path $LogDir 'edge-state.dom.html'
-        $domErr = Join-Path $LogDir 'edge-state.err.log'
-        $domArgs = $edgeCommon + @("--virtual-time-budget=$VirtualTimeBudgetMs", '--dump-dom', (Build-Url 0))
+        cdomOut = Join-Path cLogDir 'edge-state.dom.html'
+        cdomErr = Join-Path cLogDir 'edge-state.err.log'
+        cdomArgs = cedgeCommon + @("--virtual-time-budget=cVirtualTimeBudgetMs", '--dump-dom', (Build-Url 0))
         Write-Host '[shots] reading page state via --dump-dom'
-        Invoke-Edge 'state' $domArgs $domOut $domErr | Out-Null
-        if (Test-Path $domOut) {
-            $dom = Get-Content $domOut -Raw
-            $match = [regex]::Match($dom, '<pre id="fca-state-json"[^>]*>(.*?)</pre>', [System.Text.RegularExpressions.RegexOptions]::Singleline)
-            if ($match.Success) {
-                $jsonText = [System.Net.WebUtility]::HtmlDecode($match.Groups[1].Value).Trim()
-                if ($jsonText) { $state = $jsonText | ConvertFrom-Json }
+        Invoke-Edge 'state' cdomArgs cdomOut cdomErr | Out-Null
+        if (Test-Path cdomOut) {
+            cdom = Get-Content cdomOut -Raw
+            cmatch = [regex]::Match(cdom, '<pre id="fca-state-json"[^>]*>(.*?)</pre>', [System.Text.RegularExpressions.RegexOptions]::Singleline)
+            if (cmatch.Success) {
+                cjsonText = [System.Net.WebUtility]::HtmlDecode(cmatch.Groups[1].Value).Trim()
+                if (cjsonText) { cstate = cjsonText | ConvertFrom-Json }
             }
         }
     }
     catch {
-        Write-Warning "could not read page state: $($_.Exception.Message)"
+        Write-Warning "could not read page state: c(c_.Exception.Message)"
     }
-    if (-not $state) { Write-Warning 'page state unavailable; manifest will only contain files/runtime URL.' }
+    if (-not cstate) { Write-Warning 'page state unavailable; manifest will only contain files/runtime URL.' }
 
     # --- build info + manifest ---------------------------------------------------------
-    $buildInfo = $null
-    $buildInfoPath = Join-Path $WebGLRoot 'fca-webgl-build-info.json'
-    if (Test-Path $buildInfoPath) { $buildInfo = Get-Content $buildInfoPath -Raw | ConvertFrom-Json }
+    cbuildInfo = cnull
+    cbuildInfoPath = Join-Path cWebGLRoot 'fca-webgl-build-info.json'
+    if (Test-Path cbuildInfoPath) { cbuildInfo = Get-Content cbuildInfoPath -Raw | ConvertFrom-Json }
 
-    $manifest = [ordered]@{
+    cmanifest = [ordered]@{
         generated_at = (Get-Date).ToUniversalTime().ToString('o')
         format = 'fca-nebula-webgl-shots/v1'
-        runtime_url = $RuntimeUrl
-        quality = $Quality
-        viewport = "$viewportWidth" + 'x' + "$viewportHeight"
-        server_url = "http://127.0.0.1:$Port/index.html"
-        token_source = $resolvedTokenFile
-        connected = $(if ($state) { [bool]$state.connected } else { $null })
-        sample_data = $(if ($state) { [bool]$state.sample } else { $null })
-        nodes = $(if ($state) { [int]$state.nodes } else { $null })
-        edges = $(if ($state) { [int]$state.edges } else { $null })
-        arms = $(if ($state) { [int]$state.arms } else { $null })
-        arm_summary = $(if ($state) { [string]$state.armSummary } else { $null })
-        layout_signature = $(if ($state) { [string]$state.layout } else { $null })
-        view = $(if ($state) { [int]$state.view } else { $null })
-        unity_version = $(if ($buildInfo) { [string]$buildInfo.unity_version } else { $null })
-        compression = $(if ($buildInfo) { [string]$buildInfo.compression } else { 'disabled' })
-        files = $files
+        runtime_url = cRuntimeUrl
+        quality = cQuality
+        viewport = "cviewportWidth" + 'x' + "cviewportHeight"
+        server_url = "http://127.0.0.1:cPort/index.html"
+        token_source = cresolvedTokenFile
+        connected = c(if (cstate) { [bool]cstate.connected } else { cnull })
+        sample_data = c(if (cstate) { [bool]cstate.sample } else { cnull })
+        nodes = c(if (cstate) { [int]cstate.nodes } else { cnull })
+        edges = c(if (cstate) { [int]cstate.edges } else { cnull })
+        arms = c(if (cstate) { [int]cstate.arms } else { cnull })
+        arm_summary = c(if (cstate) { [string]cstate.armSummary } else { cnull })
+        layout_signature = c(if (cstate) { [string]cstate.layout } else { cnull })
+        view = c(if (cstate) { [int]cstate.view } else { cnull })
+        unity_version = c(if (cbuildInfo) { [string]cbuildInfo.unity_version } else { cnull })
+        compression = c(if (cbuildInfo) { [string]cbuildInfo.compression } else { 'disabled' })
+        files = cfiles
         note = 'FCA Nebula WebGL 真实 Runtime 数据截图（headless Edge + SwiftShader；quality 可调）。'
     }
-    $manifestPath = Join-Path $OutDir 'webgl-shots-manifest.json'
-    $manifest | ConvertTo-Json -Depth 6 | Set-Content -Path $manifestPath -Encoding UTF8
-    Write-Host "[shots] manifest: $manifestPath"
-    if ($state) {
-        Write-Host ("[shots] page state: connected={0} sample={1} nodes={2} edges={3} arms={4} layout={5}" -f $state.connected, $state.sample, $state.nodes, $state.edges, $state.arms, $state.layout)
-        if (-not $state.connected) {
+    cmanifestPath = Join-Path cOutDir 'webgl-shots-manifest.json'
+    cmanifest | ConvertTo-Json -Depth 6 | Set-Content -Path cmanifestPath -Encoding UTF8
+    Write-Host "[shots] manifest: cmanifestPath"
+    if (cstate) {
+        Write-Host ("[shots] page state: connected={0} sample={1} nodes={2} edges={3} arms={4} layout={5}" -f cstate.connected, cstate.sample, cstate.nodes, cstate.edges, cstate.arms, cstate.layout)
+        if (-not cstate.connected) {
             Write-Warning 'page reports connected=false; check Runtime URL/token/CORS'
         }
     }
-    Write-Host "[shots] DONE: $($files.Count) screenshots -> $OutDir"
+    Write-Host "[shots] DONE: c(cfiles.Count) screenshots -> cOutDir"
     # SECURITY: the iframe URL contains the bearer token; never leave it in log artifacts.
-    if ($token) {
-        foreach ($logFile in Get-ChildItem $LogDir -File -ErrorAction SilentlyContinue) {
+    if (ctoken) {
+        foreach (clogFile in Get-ChildItem cLogDir -File -ErrorAction SilentlyContinue) {
             try {
-                $content = Get-Content $logFile.FullName -Raw
-                if ($content -and $content.Contains($token)) {
-                    $content.Replace($token, '[REDACTED]') | Set-Content -Path $logFile.FullName -Encoding UTF8
-                    Write-Host "[shots] redacted token in $($logFile.Name)"
+                ccontent = Get-Content clogFile.FullName -Raw
+                if (ccontent -and ccontent.Contains(ctoken)) {
+                    ccontent.Replace(ctoken, '[REDACTED]') | Set-Content -Path clogFile.FullName -Encoding UTF8
+                    Write-Host "[shots] redacted token in c(clogFile.Name)"
                 }
             } catch { }
         }
     }
 }
 finally {
-    if (-not $KeepServer -and $server -and -not $server.HasExited) {
-        try { $server.Kill() } catch { }
+    if (-not cKeepServer -and cserver -and -not cserver.HasExited) {
+        try { cserver.Kill() } catch { }
         Write-Host '[shots] static server stopped'
     }
-    if ($KeepServer) {
-        Write-Host "[shots] server kept running: http://127.0.0.1:$Port/index.html (pid $($server.Id))"
+    if (cKeepServer) {
+        Write-Host "[shots] server kept running: http://127.0.0.1:cPort/index.html (pid c(cserver.Id))"
     }
 }

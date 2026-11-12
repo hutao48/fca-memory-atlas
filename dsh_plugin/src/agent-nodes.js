@@ -24,6 +24,7 @@
  */
 
 import { createHash } from 'node:crypto'
+import { sessionId8 } from './session-scope.js'
 
 /** Title prefix of one aggregated agent node memory. */
 export const AGENT_NODE_TITLE_PREFIX = 'Agent 思考节点'
@@ -171,7 +172,17 @@ export function summarizeToolResult(message, options = {}) {
  * All inputs must already be sanitized by the caller.
  * @returns the body string (three sections, always present).
  */
-export function formatAgentTurnBody({ reasoning, toolNodes, totalToolCalls, conclusion, maxChars, maxToolNodes }) {
+export function formatAgentTurnBody({
+  reasoning,
+  toolNodes,
+  totalToolCalls,
+  conclusion,
+  maxChars,
+  maxToolNodes,
+  occurredAt,
+  turn,
+  children,
+}) {
   const tools = Array.isArray(toolNodes) ? toolNodes.filter(Boolean) : []
   const toolLimit = Number.isInteger(maxToolNodes) && maxToolNodes > 0 ? maxToolNodes : 8
   const shown = tools.slice(0, toolLimit)
@@ -181,6 +192,12 @@ export function formatAgentTurnBody({ reasoning, toolNodes, totalToolCalls, conc
   const conclusionText = collapseWhitespace(conclusion)
 
   const sections = []
+  const meta = [`时间：${formatTimeForBody(occurredAt)}`]
+  if (Number.isInteger(turn) && turn > 0) meta.push(`第 ${turn} 回合`)
+  const childList = Array.isArray(children) ? children.filter(Boolean) : []
+  if (childList.length > 0) meta.push(`子会话：${childList.join(',')}`)
+  sections.push(meta.join(' · '))
+  sections.push('')
   sections.push('【关键推理】')
   sections.push(reasoningText || '（本回合无推理文本）')
   sections.push('')
@@ -220,6 +237,8 @@ export function formatAgentTurnBody({ reasoning, toolNodes, totalToolCalls, conc
  * @param options.totalToolCalls - number of observed tool/call events this turn.
  * @param options.conclusion - sanitized final assistant text.
  * @param options.tags - tag names to attach (caller composes workspace tag etc.).
+ * @param options.children - child session ids (or id8 strings) spawned in this turn.
+ * @param options.occurredAt - ISO occurrence time of the turn (v0.3).
  * @param options.limits - `{ reasoningChars, conclusionChars, maxChars, maxToolNodes }`.
  * @param options.sourceRef - FCA client id.
  */
@@ -230,6 +249,8 @@ export function buildAgentMemoryPayload(options = {}) {
   const limits = options.limits && typeof options.limits === 'object' ? options.limits : {}
   const reasoning = truncate(collapseWhitespace(options.reasoning), Number.isInteger(limits.reasoningChars) ? limits.reasoningChars : 1500)
   const conclusion = truncate(collapseWhitespace(options.conclusion), Number.isInteger(limits.conclusionChars) ? limits.conclusionChars : 800)
+  const children = normalizeChildren(options.children)
+  const occurredAt = typeof options.occurredAt === 'string' && options.occurredAt ? options.occurredAt : ''
   const body = formatAgentTurnBody({
     reasoning,
     conclusion,
@@ -237,11 +258,21 @@ export function buildAgentMemoryPayload(options = {}) {
     totalToolCalls: options.totalToolCalls,
     maxChars: limits.maxChars,
     maxToolNodes: limits.maxToolNodes,
+    occurredAt,
+    turn,
+    children,
   })
   const workspaceLabel = String(workspace.label || 'default')
   const cwd = String(workspace.cwd || '')
-  const noteParts = [`Agent思考节点：DSH 会话 ${sessionId.slice(0, 8) || 'unknown'} 第 ${turn} 回合，工作区 ${workspaceLabel}`]
+  const noteParts = [`Agent思考节点：DSH 会话 ${sessionId8(sessionId) || 'unknown'} 第 ${turn} 回合，工作区 ${workspaceLabel}`]
+  if (occurredAt) noteParts.push(`occurred_at=${occurredAt}`)
+  if (children.length > 0) noteParts.push(`children=${children.join(',')}`)
   if (cwd) noteParts.push(`cwd=${cwd.length > 160 ? `${cwd.slice(0, 160)}…` : cwd}`)
+  const tags = Array.isArray(options.tags) ? options.tags.slice(0, 16) : []
+  for (const childId8 of children) {
+    const childTag = `children:${childId8}`
+    if (!tags.includes(childTag)) tags.push(childTag)
+  }
   const payload = {
     title: `${AGENT_NODE_TITLE_PREFIX} · 第 ${turn} 回合`,
     body,
@@ -252,14 +283,187 @@ export function buildAgentMemoryPayload(options = {}) {
       note: noteParts.join('；'),
     },
     importance: AGENT_NODE_IMPORTANCE,
-    tags: Array.isArray(options.tags) ? options.tags.slice(0, 16) : [],
+    tags: tags.slice(0, 16),
     origin: 'agent',
+  }
+  if (occurredAt) {
+    payload.occurred_at = occurredAt
+    payload.occurred_precision = 'exact'
   }
   if (options.project && typeof options.project === 'string' && options.project.trim()) {
     payload.project = { name: options.project.trim() }
   }
   return payload
 }
+
+/** Normalize a children list to lowercase 8-char ids (dedupe, order preserved). */
+export function normalizeChildren(children) {
+  const out = []
+  if (!Array.isArray(children)) return out
+  for (const value of children) {
+    if (typeof value !== 'string' && (!value || typeof value !== 'object')) continue
+    const id8 = sessionId8(value)
+    if (!id8 || out.includes(id8)) continue
+    out.push(id8)
+    if (out.length >= 16) break
+  }
+  return out
+}
+
+// ------------------------------------------------------- subagent sessions (v0.3)
+
+/** Tag attached to every aggregated child (subagent/teammate) session memory. */
+export const SUBAGENT_SESSION_TAG = 'Agent子会话'
+
+/** Title prefix of an aggregated child session memory. */
+export const SUBAGENT_SESSION_TITLE_PREFIX = '子 Agent 会话'
+
+/** Fixed importance of a child session memory (Lead-confirmed contract). */
+export const SUBAGENT_SESSION_IMPORTANCE = 0.5
+
+/**
+ * Format the aggregated body of one 子 Agent 会话 memory.
+ * Sections: 任务 / 关键推理 / 工具执行 / 结果 / 结论 (Lead-confirmed contract).
+ * All inputs must already be sanitized by the caller.
+ */
+export function formatSubagentSessionBody({
+  task,
+  reasoning,
+  toolNodes,
+  totalToolCalls,
+  result,
+  conclusion,
+  occurredAt,
+  turn,
+  childId8,
+  parentId8,
+  maxChars,
+  maxToolNodes,
+}) {
+  const tools = Array.isArray(toolNodes) ? toolNodes.filter(Boolean) : []
+  const toolLimit = Number.isInteger(maxToolNodes) && maxToolNodes > 0 ? maxToolNodes : 12
+  const shown = tools.slice(0, toolLimit)
+  const total = Number.isInteger(totalToolCalls) && totalToolCalls > tools.length ? totalToolCalls : tools.length
+  const sections = []
+  const meta = [`时间：${formatTimeForBody(occurredAt)}`]
+  if (Number.isInteger(turn) && turn > 0) meta.push(`第 ${turn} 回合`)
+  if (childId8) meta.push(`子会话：${childId8}`)
+  if (parentId8) meta.push(`父会话：${parentId8}`)
+  sections.push(meta.join(' · '))
+  sections.push('')
+  sections.push('【任务】')
+  sections.push(collapseWhitespace(task) || '（未观测到 spawn prompt / 任务文本）')
+  sections.push('')
+  sections.push('【关键推理】')
+  sections.push(collapseWhitespace(reasoning) || '（本回合无推理文本）')
+  sections.push('')
+  sections.push('【工具执行】')
+  if (shown.length === 0) {
+    sections.push('（本回合未调用工具）')
+  } else {
+    shown.forEach((node, index) => {
+      const name = collapseWhitespace(node && node.name) || '未知工具'
+      const args = collapseWhitespace(node && node.args)
+      const toolResult = collapseWhitespace(node && node.result)
+      sections.push(`${index + 1}. ${name} · 参数：${args || '（无参数）'}`)
+      if (!node || !node.hasResult) sections.push('   结果：（未观测到结果事件）')
+      else if (node.isError) sections.push(`   结果（失败）：${toolResult || '（空结果）'}`)
+      else sections.push(`   结果：${toolResult || '（空结果）'}`)
+    })
+    if (total > shown.length) {
+      sections.push(`（本回合共 ${total} 个工具调用，正文仅保留前 ${shown.length} 个；完整序列见 DSH 会话日志）`)
+    }
+  }
+  sections.push('')
+  sections.push('【结果】')
+  sections.push(collapseWhitespace(result) || '（未观测到结果/工具输出）')
+  sections.push('')
+  sections.push('【结论】')
+  sections.push(collapseWhitespace(conclusion) || '（本回合未产生结论文本）')
+  const body = sections.join('\n')
+  const limit = Number.isInteger(maxChars) && maxChars > 0 ? Math.min(maxChars, MAX_TURN_BODY_CHARS) : 12000
+  return body.length > limit ? `${body.slice(0, limit)}…[truncated]` : body
+}
+
+/**
+ * Build one aggregated `episodic` memory payload for a finished child session turn.
+ * @param options.sessionId - child session id (full).
+ * @param options.parentSessionId - parent session id (full, may be '').
+ * @param options.turn - child turn number.
+ * @param options.workspace - `{ label, cwd }`.
+ * @param options.task - sanitized spawn prompt / task text.
+ * @param options.reasoning - sanitized reasoning text.
+ * @param options.toolNodes - sanitized tool nodes.
+ * @param options.totalToolCalls - observed tool/call count.
+ * @param options.result - sanitized result summary.
+ * @param options.conclusion - sanitized final assistant text.
+ * @param options.occurredAt - ISO occurrence time (first child event).
+ * @param options.tags - caller-composed tags (Agent子会话/subagent-session/... etc).
+ * @param options.limits - `{ taskChars, reasoningChars, conclusionChars, toolArgChars, toolResultChars, maxChars, maxToolNodes }`.
+ * @param options.sourceRef - FCA client id.
+ */
+export function buildSubagentSessionPayload(options = {}) {
+  const sessionId = typeof options.sessionId === 'string' ? options.sessionId : ''
+  const parentSessionId = typeof options.parentSessionId === 'string' ? options.parentSessionId : ''
+  const turn = Number.isInteger(options.turn) && options.turn > 0 ? options.turn : 1
+  const workspace = options.workspace && typeof options.workspace === 'object' ? options.workspace : { label: 'default', cwd: '' }
+  const limits = options.limits && typeof options.limits === 'object' ? options.limits : {}
+  const childId8 = sessionId8(sessionId)
+  const parentId8 = sessionId8(parentSessionId)
+  const occurredAt = typeof options.occurredAt === 'string' && options.occurredAt ? options.occurredAt : ''
+  const task = truncate(collapseWhitespace(options.task), Number.isInteger(limits.taskChars) ? limits.taskChars : 1200)
+  const reasoning = truncate(collapseWhitespace(options.reasoning), Number.isInteger(limits.reasoningChars) ? limits.reasoningChars : 1500)
+  const conclusion = truncate(collapseWhitespace(options.conclusion), Number.isInteger(limits.conclusionChars) ? limits.conclusionChars : 800)
+  const result = truncate(collapseWhitespace(options.result), Number.isInteger(limits.resultChars) ? limits.resultChars : 1000)
+  const workspaceLabel = String(workspace.label || 'default')
+  const body = formatSubagentSessionBody({
+    task,
+    reasoning,
+    toolNodes: options.toolNodes,
+    totalToolCalls: options.totalToolCalls,
+    result,
+    conclusion,
+    occurredAt,
+    turn,
+    childId8,
+    parentId8,
+    maxChars: limits.maxChars,
+    maxToolNodes: limits.maxToolNodes,
+  })
+  const noteParts = [
+    `子Agent会话：DSH 会话 ${childId8 || 'unknown'} 第 ${turn} 回合，父会话 ${parentId8 || 'unknown'}，工作区 ${workspaceLabel}`,
+  ]
+  if (occurredAt) noteParts.push(`occurred_at=${occurredAt}`)
+  if (workspace.cwd) noteParts.push(`cwd=${String(workspace.cwd).slice(0, 160)}`)
+  const payload = {
+    title: `${SUBAGENT_SESSION_TITLE_PREFIX} · ${workspaceLabel} · ${childId8 || 'unknown'}`,
+    body,
+    memory_type: 'episodic',
+    source: {
+      type: 'agent',
+      ref: options.sourceRef || 'dsh-plugin',
+      note: noteParts.join('；'),
+    },
+    importance: SUBAGENT_SESSION_IMPORTANCE,
+    tags: Array.isArray(options.tags) ? options.tags.slice(0, 16) : [],
+    origin: 'agent',
+  }
+  if (occurredAt) {
+    payload.occurred_at = occurredAt
+    payload.occurred_precision = 'exact'
+  }
+  if (options.project && typeof options.project === 'string' && options.project.trim()) {
+    payload.project = { name: options.project.trim() }
+  }
+  return payload
+}
+
+/** Render a short time line for memory bodies (UTC, no milliseconds). */
+function formatTimeForBody(iso) {
+  if (typeof iso !== 'string' || !iso) return '（未知）'
+  return iso.replace('T', ' ').replace(/\.\d{3}Z$/, 'Z')
+}
+
 
 /** Max characters of raw reasoning buffered per turn (bounded memory). */
 export function reasoningBudget(reasoningChars) {

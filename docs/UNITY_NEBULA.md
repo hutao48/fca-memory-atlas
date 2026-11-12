@@ -192,16 +192,19 @@ http://127.0.0.1:<Electron 随机端口>/index.html
 
 ### 3.1 分组规则（tags 唯一依据）
 
+> **布局冻结（用户 2026-11-13 明确要求）**：旋臂分配/数量/顺序/颜色、节点沿臂排序与占位公式保持既有实现；task-14 只做 shader 对齐、连线重绘、颜色/亮度微调与**附加**的链式排序/折叠层级。以下公式与参数不得再改。
+
 对每个节点扫描 `tags`：
 
 1. 找到第一个形如 **`workspace:<label>`** 的标签（前缀大小写不敏感，`label` 保留原始大小写，trim 后非空）→ 归入该 workspace 旋臂；
 2. 没有任何 workspace 标签 → 归入 **`default`** 旋臂（冷白色，图例显示 `default（未分组）`）；
 3. 若 `workspace:` 后为空字符串 → 视同无标签 → default；
 4. 同一节点多个 workspace 标签时取第一个（Runtime 侧应保证唯一）。
+5. **链优先（task-14）**：同一会话/父子链的节点先做 union-find 合并，再以链为单位投票一个 workspace；链内所有节点强制落在同一条旋臂（多数票；平票用父节点/最早节点），再参与该臂的连续排序。绝不让同链节点分到不同臂。
 
-> 关键点：**节点位置不再使用 API 返回的 `position`**。只要标签相同，节点一定被强制放到同一条旋臂上；API 旧坐标/其他渲染器的布局不会影响归臂。
+> 关键点：**节点位置不再使用 API 返回的 `position`**。只要标签相同/同链，节点一定被强制放到同一条旋臂上；API 旧坐标/其他渲染器的布局不会影响归臂。
 
-### 3.2 旋臂几何（对数螺旋）
+### 3.2 旋臂几何（对数螺旋，冻结）
 
 workspace 数量 `N`；命名 workspace 按 Ordinal 排序（default 永远最后）后均分角度：
 
@@ -217,7 +220,7 @@ span  = lerp(maxSpan · 0.42, maxSpan, sqrt(count/maxCount))   ← θ 范围与�
 - 节点少的 workspace 得到更短、更靠内的旋臂；节点最多的 workspace 用满 `maxSpan`；
 - 每条臂的内/外半径、pitch、span、径向宽度、垂直厚度都会传给体积着色器，**星云气体与旋臂严格同源**。
 
-**节点沿臂分布**（同一 workspace 内，按节点 id 的 FNV-1a 稳定哈希排序，保证多轮刷新位置稳定）：
+**节点沿臂分布**（同一 workspace 内，按链分组、组内按 `occurred_at`/稳定 id 排序；同一链在臂上连续排布，父节点尽量居中；组内抖动公式冻结不变）：
 
 ```
 base_t = (rank + 0.5) / count
@@ -227,7 +230,7 @@ r = r0 · exp(b · span · t) · (1 + (hash_R - 0.5) · 2 · 0.075)     ← 径�
 z = (hash_Z - 0.5) · 2 · 34 · (1 - 0.38·importance) + sin(2πt + i·1.7)·4.5
 ```
 
-即：**importance 越高 → 角向更贴近臂心线、z 更靠近银盘平面、越大越亮**；普通记忆散布更松。
+即：**importance 越高 → 角向更贴近臂心线、z 更靠近银盘平面、越大越亮**；普通记忆散布更松。task-14 只改变“rank 顺序”（链连续），不改变臂几何/抖动公式。
 
 **节点尺寸/亮度**（与 old WebGL 渲染器语义一致）：
 
@@ -259,7 +262,9 @@ brightness = clamp((0.18 + 0.82·importance²) · (0.65 + 0.35·display_weight),
 对每个 raymarch 采样点 `p`：`r = length(p.xy)`，`θ = atan2(p.y,p.x)`；对每条臂：
 
 ```
-rel       = wrap(θ - θ0)（hand<0 时取反，wrap 到 [0,2π)）
+rel       = hand·(θ - θ0)
+rel      -= 2π · round((rel - span/2) / 2π)      ← task-14 修复：unwrap 到离 span/2 最近的周期
+if (rel < 0 || rel > span) skip                   ← 不能再简单 fmod（多臂时 base+span>2π 会错位）
 expected  = r0 · exp(b · rel)                      ← 与布局公式完全一致
 radial    = exp(-(r-expected)² / width(rel)²)      ← 臂径向高斯，外段更宽
 vertical  = exp(-z² / σz²)                         ← 垂直高斯（σz 由布局参数给出）
@@ -268,9 +273,25 @@ density  += radial·vertical·edgeFade·intensity·(0.055+0.42·gas)·(0.42+0.95
 emission += armColor·density
 ```
 
+`rel` 的 unwrap 是 task-14 的关键修复：旧代码在 `rel=theta-baseAngle` 后直接 `fmod` 到 [0,2π)，当 `baseAngle+span>2π`（N≥2 时必然）会把臂的外段映射到错误角度扇区，导致体积云与节点/旋臂整体错位。臂宽/亮度等参数保持冻结值，不做布局层改动。
+
 其中 `structure = smoothstep(0.22, 0.80, fine)`，用中高频 FBM 把平滑的臂打散成气体纤维/团块；transmittance 同时被高频尘埃与气体自遮挡（`extinction = dust + density·0.55`）吸收，避免“白棉球”。
 
 气体由 3D FBM + 域扭曲构成（非“白棉球”）；`fine` 高频噪声形成暗尘埃带（通过 transmittance 吸收）；中心有紧凑暖色核球；再叠加程序化深空星场与银河带背景。
+
+### 3.5 链式布局与子 Agent 层级（task-14，附加层；臂几何冻结）
+
+**链 = 同一会话/父子链**：root session + 其 spawn 的 child sessions + 这些会话产生的 Agent思考节点/用户消息/子会话记忆。Unity 端用 union-find 构建链（`WorkspaceSpiralLayout.BuildChains`）：
+
+1. `relation_type=custom` + `label=spawned_subagent`（或 `derived_from`）的 memory↔memory 关系合并两端；
+2. 父节点 tag `children:<childId8>` 与子节点 tag `subagent-session:<childId8>` 合并（一个父可有多个 `children:*` tag，独立字符串）；
+3. 子节点 tag `parent-memory:<parentMemoryId>` 与对应父记忆合并；
+4. 子节点 `subagent-session:<id8>` 与父节点/其它节点 `parent-session:<id8>` 通过同一 session token 合并（`parent-session:session-` 之类的 bug 值会被忽略）；
+5. 相同 `session:<id8>`（memory-pipeline 即将补充的 tag）合并。
+
+链内所有节点强制归组到**一个主 workspace 臂**（多数票；平票取父节点 workspace，再取最早节点），**绝不让同链节点分到不同臂**；臂内先按链分组（链 key 稳定 hash 排序），链内按 `occurred_at`/稳定 id 排序，父节点尽量居中，形成连续一节。输出只读断言 `chainSameArmAll`、`chainCount`、`chainMultiNodeCount`、`chainSummary`（见 manifest）。
+
+**折叠层级（附加层，不移动父节点）**：子会话节点默认折叠隐藏；点击父节点（tags 含 `children:*` 或存在 spawned_subagent 出边）时子节点围绕父节点做环形扇出 + 展开动画 + 金色虚线 filament，再次点击父节点/点空白收起；HUD 显示“子节点 N / 已展开”，子节点可点击查看真实 title/正文摘要。父节点在原臂位置从不因展开而改变。
 
 ---
 
@@ -282,7 +303,7 @@ emission += armColor·density
 | 体积星云 | 相机挂载全屏 quad（Background 队列，近平面覆盖），逐像素 raymarch 球体包围盒；`_Steps/_Octaves` 由画质档位驱动 | `NebulaVolume.shader` + `NebulaFieldRenderer.cs` |
 | Bloom/合成 | `OnRenderImage`：预过滤（阈值+膝）→ 1/2 分辨率分离高斯（迭代次数随画质）→ 合成（曝光、ACES、暗角、颗粒、抖动） | `NebulaPost.shader` |
 | 节点星点 | 每帧把所有节点合并为一个动态 billboard Mesh（4 顶点/节点，一次 additive draw call）；颜色/亮度/选中/悬停/闪烁相位写入顶点色与 TEXCOORD1 | `NodeStar.shader` + `NodeRenderer.cs` |
-| 关系光丝 | 全边合并为一个动态 ribbon Mesh（二次贝塞尔弯曲、双面交叉、端点淡出、UV 流光/虚线），additive | `EdgeFilament.shader` + `EdgeRenderer.cs` |
+| 关系光丝 | 全边合并为一个动态 ribbon Mesh；**同臂边沿现有臂螺旋中心线采样**、**跨臂边绕核心并在低亮度下连接**；父→子层级为虚线金色 filament | `EdgeFilament.shader` + `EdgeRenderer.cs` |
 | HUD | IMGUI（零额外包依赖），系统动态中文字体（Microsoft YaHei 等），失败/样例横幅 | `UiOverlay.cs` |
 | 相机 | 绕 Z 轴轨道（银盘在 XY 平面），阻尼、滚轮缩放、预设机位（overview/arm-closeup/top-down） | `NebulaCameraRig.cs` |
 
@@ -577,8 +598,12 @@ renderer 校验 `event.source === iframe.contentWindow` 后才处理；不使用
 | 静态自检（括号/语法/JSON/契约/Editor 入口/WebGL 桥） | `powershell -File unity/FCANebula/scripts/verify-source.ps1` | ✅ 通过 |
 | Unity **2022.3** 编译（standalone + WebGL 两次构建） | `bootstrap.log` / `build.log` / `webgl-build.log` 无 `error CS` / `Shader error` | ✅ 0 errors |
 | Bootstrap 产物 | `Assets/Scenes/FCANebula.unity`、`Assets/Resources/Nebula/*.mat`、`EditorBuildSettings` | ✅ 已生成 |
-| **WebGL 构建（Electron 内嵌主路径）** | `artifacts/unity/FCANebulaWebGL/index.html` + `Build/*.js/.wasm/.data`，**19 files / 24.9 MB**，`fca-webgl-build-info.json` 0 errors | ✅ 构建成功（见 §11.3） |
-| **WebGL 真实数据截图 ×3** | `artifacts/unity/webgl-shots/webgl-view-{0,1,2}.png` + `webgl-shots-manifest.json` + `logs/` | ✅ 真实 Runtime（见 §11.4） |
+| **WebGL 构建（Electron 内嵌主路径）** | `artifacts/unity/FCANebulaWebGL/index.html` + `Build/*.js/.wasm/.data`，约 **25 MB**，`fca-webgl-build-info.json` 0 errors | ✅ 构建成功（见 §11.3） |
+| **WebGL 真实数据截图 ×5** | `artifacts/unity/webgl-shots/webgl-view-{0,1,2}.png` + `webgl-hierarchy-{before,after}.png` + `webgl-shots-manifest.json` + `logs/` | ✅ 真实 Runtime（见 §11.3） |
+| **task-14 几何对齐** | `webgl-view-0/1`（臂/节点/光丝对齐）；manifest `alignMeanWidth/alignP95Width/alignMaxWidth` | ✅ mean≈0.48 / p95≈0.86 / max≈1.20 ×臂宽（冻结布局的既有 jitter） |
+| **task-14 链式布局** | manifest `chainCount/chainMultiNodeCount/chainSummary/chainSameArmAll` | ✅ 同链同臂断言 true（见 §11.3） |
+| **task-14 层级展开** | `webgl-hierarchy-before.png` / `webgl-hierarchy-after.png`；manifest `hierarchy.before/after`（expandedParents/visibleChildren） | ✅ 真实 Runtime 层级（父→子展开） |
+| **task-17 选择桥接** | manifest `selection_test`（page→Unity select + Unity→page `fca-unity-select` + clear） | ✅ passed=true；desktop-integration Electron 8/8 联调通过 |
 | Windows standalone（开发/备用） | `artifacts/unity/FCANebula/FCANebula.exe` | ✅ 构建成功（见 §9） |
 | standalone 真实数据截图 ×3 | `artifacts/unity/shots-final/screenshot-{1,2,3}-*.png` + `screenshots-manifest.json` | ✅（见 §9） |
 | 脱敏样例 | `artifacts/unity/sample-graph.json`（与 StreamingAssets 同份） | ✅ 已重新导出 |
@@ -590,9 +615,11 @@ renderer 校验 `event.source === iframe.contentWindow` 后才处理；不使用
 
 | 文件 | 机位 | 体现内容 |
 |---|---|---|
-| `webgl-view-0.png` | overview（az=-90°, el=27°） | 多条 workspace 旋臂（青蓝 FCA / 蓝 / 冷白 default）+ 深空星场 + HUD 图例 |
-| `webgl-view-1.png` | workspace-arm 特写 + 预选记忆 | 真实记忆 title/正文详情面板（中文 HUD 由内置 Noto Sans SC 渲染）+ 同臂星点 |
-| `webgl-view-2.png` | top-down（el≈84°） | 对数螺旋几何形状、每条臂颜色、关系光丝 |
+| `webgl-view-0.png` | overview（az=-90°, el=27°） | 多条 workspace 旋臂 + 深空星场 + HUD 图例；节点落在各自臂色带内（shader unwrap 后对齐） |
+| `webgl-view-1.png` | workspace-arm 特写 + 预选记忆 | 真实记忆 title/正文详情面板 + 同臂星点；用于观察臂/节点/光丝对齐 |
+| `webgl-view-2.png` | top-down（el≈84°） | 对数螺旋几何形状、每条臂颜色；同臂关系光丝沿臂弯曲 |
+| `webgl-hierarchy-before.png` | 父节点折叠（view 1） | 父记忆（Agent子会话）无子节点、HUD 显示折叠 |
+| `webgl-hierarchy-after.png` | 父节点展开（view 1） | 子 Agent 节点围绕父节点扇出 + 金色虚线 filament + HUD“子节点 N / 已展开” |
 
 `webgl-shots-manifest.json` 记录：CDP URL（token 已脱敏）、真实 viewport、Unity 版本、compression、connected/sample、节点/关系/旋臂数、armSummary、layout、WebGL 诊断（tokenProvided / volumeMaterialOk / armCountUniform / emissionScale / marchSteps）、文件列表；`logs/` 含 Unity 控制台日志与浏览器日志（无 token）。
 
@@ -626,6 +653,12 @@ renderer 校验 `event.source === iframe.contentWindow` 后才处理；不使用
 14. **WebGL HUD 的中文依赖内置 Noto Sans SC**（`Assets/Resources/Fonts/NotoSansSC-VF.ttf`，SIL OFL 1.1，约 17.7MB，已计入 data）；若移除该字体中文会显示方块。standalone 使用系统字体（Microsoft YaHei 等）。
 15. **WebGL 验收截图使用 headless Edge + SwiftShader**（软件 WebGL）以保证可重复：因此画质取 `low`（24 steps）、截图耗时数分钟/次；`medium` 在 1600×1000 软件渲染下会超时。真实 GPU 浏览器可用 `medium/high`。
 16. **不要给 Electron iframe 加 `sandbox` 属性**：实测 Unity 2022 WebGL 在 Chromium sandboxed iframe 中无法完成初始化（资源加载/wasm 编译失败），Electron 侧已采用跨源 iframe + 只读本地服务 + CSP 白名单的收敛方案（详见 §6.9，desktop-integration 维护）。
+17. **布局冻结，但链式排序会改变节点沿臂次序**：用户要求旋臂几何（内外半径/pitch/span/宽度/颜色/臂数/排序公式）不变；task-14 只把同链节点在臂上连续排列，因此**节点沿臂的 rank/具体坐标会变**，但臂几何参数不变、布局 signature 仍为 v1 格式；`docs` 与本文件均标注“布局未因臂参数改变”。
+18. **节点中心线距离统计可略大于 1 个臂宽**：冻结布局的既有径向/角向 jitter（±7.5% 半径、±0.085 rad）在个别节点可产生 ~1.2×臂宽偏移；这是冻结公式的结果，task-14 只修 shader 的 rel unwrap（体积云与臂中心线对齐），不改节点 jitter。
+19. **层级数据仍在补全**：真实 Runtime 已出现 `spawned_subagent` relation + `children/subagent-session/parent-memory` tags，但当前只解析到 1 个父/1 个子（`parent-session:session-` 等 bug 标签被忽略）；`parent-session` 修复后匹配率会提高。未匹配的子会话节点会作为普通节点留在原臂（不伪造父子关系）。
+20. **链合并可能过并**：同一 session token 会被合并成一条链（按 Lead 契约），如果 memory-pipeline 给同一 root session 的所有记忆都打同一 `session:<id8>`，这些节点会成为一条超长链并连续排在一条臂上（符合“同链同臂”要求，但臂节点数分布会变化）。
+21. **WebGL 验收截图分进程抓取**：SwiftShader 下同一进程连续抓 top-down 偶发 `Page.captureScreenshot` 超时，脚本改为按机位分批运行并合并 manifest；这是验收工具限制，不影响真实 GPU 浏览器。
+22. **展开动画/选中状态不写入 manifest 截图内容**：层级状态与选中状态由 `webgl-shots-manifest.json` 的 `hierarchy.before/after` 与 `selection_test` 记录，截图本身在 SwiftShader 低画质下采集。
 
 ---
 
@@ -765,8 +798,21 @@ index.html?runtime-url=http://127.0.0.1:17860&token=<bearer>&quality=high&view=0
 | `window.__FCA_READY__` | `true` 表示首帧真实图已渲染 |
 | `window.__FCA_NEBULA_STATE__` | 当前状态对象（见下） |
 | `window.__FCA_NEBULA_UNITY__` | `unityInstance`（Unity loader 返回实例） |
-| `window.postMessage` | `{type:'fca-unity-ready', payload}`（一次）；`{type:'fca-unity-state', payload}`（每次状态/图更新） |
-| `window` DOM 事件 | `new CustomEvent('fca-unity-ready'/'fca-unity-state', {detail: payload})` |
+| `window.postMessage` | `{type:'fca-unity-ready', payload}`（一次）；`{type:'fca-unity-state', payload}`（每次状态/图更新）；`{type:'fca-unity-select', payload}`（节点选中/取消） |
+| `window` DOM 事件 | `new CustomEvent('fca-unity-ready'/'fca-unity-state'/'fca-unity-select', {detail: payload})` |
+| `window.__FCA_NEBULA_SELECTED__` | 最近一次选中 payload（清空时为 `{clear:true, selected:false}`） |
+
+**选择事件 payload（task-17，Electron 右栏同步）**
+
+```json
+{
+  "id": "mem_…", "kind": "memory", "title": "Agent 思考节点 · 第 2 回合",
+  "memoryType": "procedural", "arm": "default-workspace", "importance": 0.55,
+  "occurredAt": "", "selected": true, "clear": false
+}
+```
+
+取消选中：`{"id":null,"selected":false,"clear":true}`（JSON 中 null 字段由 `JsonUtility` 序列化为空字符串；判断以 `clear/selected` 为准）。同一 id 的重复选中会被去重（节流），从 JS `select:<id>` 触发的选中也会回推一次。desktop-integration 已完成 Electron 8/8 真实联调（`artifacts/reports/desktop-ui/real-sync-report.json`）。
 
 `payload` 字段（`WebGLBridge.cs`，JSON via `JsonUtility`）：
 
@@ -793,19 +839,27 @@ index.html?runtime-url=http://127.0.0.1:17860&token=<bearer>&quality=high&view=0
 | `FCA_NEBULA.setQuality('high')` | 切换画质档位 |
 | `FCA_NEBULA.refresh()` | 立即拉取 Runtime graph |
 | `FCA_NEBULA.postCommand('labels:0')` | 通用命令通道（`SendMessage("FCA Nebula System","OnJsCommand",cmd)`） |
+| `FCA_NEBULA.select(nodeId)` / `postCommand('select:clear')` | 选中节点 / 清除选中（同时回推 `fca-unity-select`） |
+| `FCA_NEBULA.expand(nodeId)` / `collapse(nodeId)` | 展开/收起父节点的子 Agent 层级 |
+| **父页面 → iframe 命令通道** | 跨源时父页面无法访问 iframe 的 `window.FCA_NEBULA`，模板监听 `message`：`parent.postMessage({type:'fca-unity-command', command:'select:<id>'|'view:1'|'quality:high'|...}, '*')`；iframe 回 `{type:'fca-unity-command-ack', command, ok}` |
+| `FCA_NEBULA.getSelected()` | 最近一次选中 payload |
 
 **加载/失败状态**：token 缺失或 Runtime 不可达时，HUD 显示红色错误横幅且 `connected=false`（不伪造数据）；`sample` 在 WebGL 恒为 false（WebGL 不读取 StreamingAssets 样例文件）。
 
-### 11.3 验收证据（2026-11-12，真实 Runtime 数据）
+### 11.3 验收证据（2026-11-13，真实 Runtime 数据 · task-14/17）
 
 | 项 | 证据 |
 |---|---|
-| 构建 | `D:\FCA\_scratch\unity\webgl-build.log`（Success / 0 errors）；`artifacts/unity/FCANebulaWebGL/fca-webgl-build-info.json` |
-| 静态自检 | `unity/FCANebula/scripts/verify-source.ps1` → 通过（含 WebGL 模板/jslib/bridge/字体/服务脚本检查） |
-| 真实数据截图 ×3 | `artifacts/unity/webgl-shots/webgl-view-0.png` / `webgl-view-1.png` / `webgl-view-2.png`（1600×966~1000，headless Edge + SwiftShader） |
-| manifest | `artifacts/unity/webgl-shots/webgl-shots-manifest.json`：`connected=true`、`sample_data=false`、`nodes=20`、`edges=11`、`arms=3`、`arm_summary="FCA:13 | 大肥鱼帮我赚钱:1 | default:6"`、token=[REDACTED] |
+| 构建 | `D:\FCA\_scratch\unity\webgl-build.log`（Success / 0 errors）；`artifacts/unity/FCANebulaWebGL/fca-webgl-build-info.json`（**final built_at 2026-11-12T16:57:30Z**，含 chain/selection 修改；player 与 16:46 联调构建代码一致，仅 build-info 契约文案更新） |
+| 静态自检 | `unity/FCANebula/scripts/verify-source.ps1` → 通过（WebGL 模板/jslib/bridge/字体/服务脚本/token 脱敏检查） |
+| 真实数据截图 ×5 | `webgl-view-{0,1,2}.png` + `webgl-hierarchy-{before,after}.png`（1600×966~1000，headless Edge + SwiftShader，quality=low）；同时复制到 `artifacts/unity/shots-final/task14-webgl-*.png` + `task14-evidence.json` 供交付验收 |
+| manifest（几何/链/层级/选择） | `webgl-shots-manifest.json`：`nodes=56/edges=46/arms=5`，`layout="v1|5|default-workspace:7|FCA:35|music:5|大肥鱼帮我赚钱:1|default:8"`（v1 冻结格式）；`align_mean=0.482 / p95=0.862 / max=1.197 ×臂宽`；`chainCount=51 / chainMultiNodeCount=1 / chainSummary="FCA:6" / chainSameArmAll=true`；`hierarchyParents=1/hierarchyChildren=1`，before→after `expandedParents 0→1 / visibleChildren 0→1`；`selection_test.passed=true`（select + clear 事件均收到） |
+| 选择事件示例 | `{"id":"mem_58403…","kind":"memory","title":"Agent 思考节点 · 第 2 回合","memoryType":"procedural","arm":"default-workspace","importance":0.55,"occurredAt":"","selected":true,"clear":false}`；clear：`{"id":"","selected":false,"clear":true}` |
 | 控制台/异常日志 | `artifacts/unity/webgl-shots/logs/webgl-console.log`、`webgl-browser-log.log`、`webgl-exceptions.log`（空） |
 | token 安全 | manifest URL 与静态服务日志已脱敏；全 `artifacts/unity` 扫描无明文 token |
+| 桌面侧联调 | desktop-integration：真实 Electron + Unity WebGL 双向选中 **最终构建复验 8/8 PASS**（`artifacts/reports/desktop-ui/final-sync-report.json`，含 `build.expected_built_at_utc=2026-11-12T16:57:30.8839409Z`；截图 final-unity-to-electron / final-bidirectional / final-clear-sync）。验收注意：父节点展开后 Unity 回推 id 可能变化，桌面侧以“settle 后连续 2 次采样两端一致”断言（正常展开不视为失败）。 |
+
+> 布局冻结说明：旋臂几何参数与 `layout` signature 保持 v1 格式；节点沿臂次序因“同一链连续排布”要求而调整（用户明确允许），臂分配仍由 workspace/链投票决定。
 
 ### 11.4 本机复现/重新验收
 

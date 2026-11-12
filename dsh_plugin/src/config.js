@@ -18,7 +18,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 /** Plugin package version (mirrors package.json). */
-export const PLUGIN_VERSION = '0.2.1'
+export const PLUGIN_VERSION = '0.3.1'
 
 /** FCA HTTP API major version this plugin speaks (contract §8). */
 export const FCA_API_VERSION = '1'
@@ -37,6 +37,9 @@ export const AUTO_MEMORY_MODES = ['off', 'user-messages', 'all']
 
 /** Agent turn-node aggregation modes: off | summary (one aggregated memory per turn). */
 export const AUTO_MEMORY_AGENT_MODES = ['off', 'summary']
+
+/** Child/subagent session aggregation modes (v0.3): off | summary (one memory per child session turn). */
+export const AUTO_MEMORY_SUBAGENT_MODES = ['off', 'summary']
 
 /** Memory types accepted by the FCA contract (§2). */
 export const MEMORY_TYPES = [
@@ -187,6 +190,69 @@ export const CONFIG_FIELDS = {
     default: 60,
     description: 'Agent turn node: hard rate limit (aggregated memories per rolling hour).',
   },
+  autoMemorySubagentCapture: {
+    type: 'enum',
+    values: AUTO_MEMORY_SUBAGENT_MODES,
+    default: 'off',
+    description:
+      'Child/subagent session capture (v0.3): off | summary — at every child session turn end store one aggregated episodic memory (task/reasoning/tools/result/conclusion) with subagent-session:/parent-session: tags. The shipped bundle enables summary.',
+  },
+  autoMemorySubagentMaxToolNodes: {
+    type: 'integer',
+    default: 12,
+    description: 'Child session memory: maximum tool calls rendered into one aggregated body.',
+  },
+  autoMemorySubagentTaskChars: {
+    type: 'integer',
+    default: 1200,
+    description: 'Child session memory: spawn-prompt / task excerpt length cap (characters).',
+  },
+  autoMemorySubagentReasoningChars: {
+    type: 'integer',
+    default: 1500,
+    description: 'Child session memory: reasoning excerpt length cap (characters).',
+  },
+  autoMemorySubagentConclusionChars: {
+    type: 'integer',
+    default: 800,
+    description: 'Child session memory: conclusion excerpt length cap (characters).',
+  },
+  autoMemorySubagentResultChars: {
+    type: 'integer',
+    default: 1000,
+    description: 'Child session memory: final result excerpt length cap (characters).',
+  },
+  autoMemorySubagentToolArgChars: {
+    type: 'integer',
+    default: 400,
+    description: 'Child session memory: per-tool argument summary cap (characters, after redaction).',
+  },
+  autoMemorySubagentToolResultChars: {
+    type: 'integer',
+    default: 600,
+    description: 'Child session memory: per-tool result summary cap (characters, after redaction).',
+  },
+  autoMemorySubagentMaxChars: {
+    type: 'integer',
+    default: 12000,
+    description: 'Child session memory: aggregated body length cap.',
+  },
+  autoMemorySubagentMaxPerHour: {
+    type: 'integer',
+    default: 60,
+    description: 'Child session memory: hard rate limit (aggregated memories per rolling hour).',
+  },
+  autoMemoryContextRecovery: {
+    type: 'boolean',
+    default: false,
+    description:
+      'Context-recovery assistant (v0.3): when true, the plugin injects an always-on recovery instruction plus a post-compaction reminder into the model prompt and listens for compaction events. The shipped bundle enables it.',
+  },
+  autoMemoryContextRecoveryMaxChars: {
+    type: 'integer',
+    default: 900,
+    description: 'Context-recovery assistant: max characters of the per-agent recovery context text.',
+  },
   requestTimeoutMs: {
     type: 'integer',
     default: 5000,
@@ -301,6 +367,27 @@ export function normalizeConfig(raw) {
   config.autoMemoryAgentToolResultChars = Math.min(asPositiveInt(input.autoMemoryAgentToolResultChars, base.autoMemoryAgentToolResultChars), 8000)
   config.autoMemoryAgentMaxChars = Math.min(asPositiveInt(input.autoMemoryAgentMaxChars, base.autoMemoryAgentMaxChars), 60_000)
   config.autoMemoryAgentMaxPerHour = Math.min(asPositiveInt(input.autoMemoryAgentMaxPerHour, base.autoMemoryAgentMaxPerHour), 10_000)
+  const subagent = asString(input.autoMemorySubagentCapture, base.autoMemorySubagentCapture)
+  if (!AUTO_MEMORY_SUBAGENT_MODES.includes(subagent)) {
+    throw new TypeError(
+      `autoMemorySubagentCapture must be one of ${AUTO_MEMORY_SUBAGENT_MODES.join(' | ')}, received ${JSON.stringify(input.autoMemorySubagentCapture)}`,
+    )
+  }
+  config.autoMemorySubagentCapture = subagent
+  config.autoMemorySubagentMaxToolNodes = Math.min(asPositiveInt(input.autoMemorySubagentMaxToolNodes, base.autoMemorySubagentMaxToolNodes), 64)
+  config.autoMemorySubagentTaskChars = Math.min(asPositiveInt(input.autoMemorySubagentTaskChars, base.autoMemorySubagentTaskChars), 20_000)
+  config.autoMemorySubagentReasoningChars = Math.min(asPositiveInt(input.autoMemorySubagentReasoningChars, base.autoMemorySubagentReasoningChars), 20_000)
+  config.autoMemorySubagentConclusionChars = Math.min(asPositiveInt(input.autoMemorySubagentConclusionChars, base.autoMemorySubagentConclusionChars), 20_000)
+  config.autoMemorySubagentResultChars = Math.min(asPositiveInt(input.autoMemorySubagentResultChars, base.autoMemorySubagentResultChars), 20_000)
+  config.autoMemorySubagentToolArgChars = Math.min(asPositiveInt(input.autoMemorySubagentToolArgChars, base.autoMemorySubagentToolArgChars), 4000)
+  config.autoMemorySubagentToolResultChars = Math.min(asPositiveInt(input.autoMemorySubagentToolResultChars, base.autoMemorySubagentToolResultChars), 8000)
+  config.autoMemorySubagentMaxChars = Math.min(asPositiveInt(input.autoMemorySubagentMaxChars, base.autoMemorySubagentMaxChars), 60_000)
+  config.autoMemorySubagentMaxPerHour = Math.min(asPositiveInt(input.autoMemorySubagentMaxPerHour, base.autoMemorySubagentMaxPerHour), 10_000)
+  config.autoMemoryContextRecovery = asBoolean(input.autoMemoryContextRecovery, base.autoMemoryContextRecovery)
+  config.autoMemoryContextRecoveryMaxChars = Math.min(
+    asPositiveInt(input.autoMemoryContextRecoveryMaxChars, base.autoMemoryContextRecoveryMaxChars),
+    4000,
+  )
   config.requestTimeoutMs = asPositiveInt(input.requestTimeoutMs, base.requestTimeoutMs)
   config.healthTimeoutMs = asPositiveInt(input.healthTimeoutMs, base.healthTimeoutMs)
   config.connectIntervalMs = asPositiveInt(input.connectIntervalMs, base.connectIntervalMs)

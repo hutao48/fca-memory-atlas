@@ -187,6 +187,9 @@ function createRuntimeManager(options) {
   async function refreshFromHealth(health) {
     lastHealth = health;
     consecutiveFailures = 0;
+    // 健康检查成功即视为 running：否则 refreshSettings()（如切换 nebulaEngine 触发 settings.onChange）
+    // 会用内部 state=stopped 重建 status，把已采纳的外部 Runtime 误报为 stopped（renderer 因此不再加载图谱）。
+    state = 'running';
     status = makeStatus({ state: 'running' });
     const newStatus = { ...status };
     try {

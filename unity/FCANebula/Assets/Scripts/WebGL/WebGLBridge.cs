@@ -34,6 +34,43 @@ namespace FCANebula
         public float armCountUniform;
         public float emissionScale;
         public int marchSteps;
+        // task-14: geometry alignment + hierarchy state for acceptance tooling
+        public int visibleNodes;
+        public float alignMeanWidth;
+        public float alignP95Width;
+        public float alignMaxWidth;
+        public int hierarchyParents;
+        public int hierarchyChildren;
+        public int hierarchyExpandedParents;
+        public int hierarchyVisibleChildren;
+        public string hierarchyParentId;
+        public string hierarchyParentLabel;
+        public int hierarchyParentChildCount;
+        // task-14: chain layout (same session chain -> same arm, contiguous)
+        public int chainCount;
+        public int chainMultiNodeCount;
+        public int crossWorkspaceChainCount;
+        public string chainSignature;
+        public bool chainSameArmAll;
+        public string chainSummary;
+        // selection bridge support
+        public string sampleNodeId;
+        public string sampleNodeTitle;
+        public string selectedNodeId;
+    }
+
+    [Serializable]
+    public class WebGLSelectionPayload
+    {
+        public string id;
+        public string kind;
+        public string title;
+        public string memoryType;
+        public string arm;
+        public float importance;
+        public string occurredAt;
+        public bool selected;
+        public bool clear;
     }
 
     public static class WebGLBridge
@@ -44,7 +81,11 @@ namespace FCANebula
         [DllImport("__Internal")]
         private static extern void FCABridge_NotifyReady(string json);
 
+        [DllImport("__Internal")]
+        private static extern void FCABridge_NotifySelect(string json);
+
         static int _lastView = -1;
+        static string _lastSelectionId = "\u0000"; // sentinel: nothing sent yet
 
         public static void SetInitialView(int view)
         {
@@ -124,6 +165,67 @@ namespace FCANebula
                         payload.marchSteps = material.GetInt("_Steps");
                     }
                 }
+                LayoutModel layout = app != null ? app.CurrentLayout : null;
+                if (layout != null)
+                {
+                    payload.visibleNodes = layout.VisibleNodeCount;
+                    payload.alignMeanWidth = layout.AlignMeanWidth;
+                    payload.alignP95Width = layout.AlignP95Width;
+                    payload.alignMaxWidth = layout.AlignMaxWidth;
+                    payload.hierarchyParents = layout.HierarchyParentCount;
+                    payload.hierarchyChildren = layout.HierarchyChildCount;
+                    if (layout.HierarchyParentIds.Count > 0)
+                    {
+                        string firstParentId = layout.HierarchyParentIds[0];
+                        payload.hierarchyParentId = firstParentId;
+                        LayoutNode parent;
+                        if (layout.ById.TryGetValue(firstParentId, out parent))
+                        {
+                            payload.hierarchyParentLabel = parent.Source != null ? parent.Source.DisplayTitle : firstParentId;
+                            payload.hierarchyParentChildCount = parent.ChildIds.Count;
+                        }
+                    }
+                }
+                if (app != null && app.Hierarchy != null)
+                {
+                    payload.hierarchyExpandedParents = app.Hierarchy.ExpandedParentCount;
+                    payload.hierarchyVisibleChildren = app.Hierarchy.VisibleChildCount;
+                }
+                if (layout != null)
+                {
+                    payload.chainCount = layout.ChainCount;
+                    payload.chainMultiNodeCount = layout.MultiNodeChainCount;
+                    payload.crossWorkspaceChainCount = layout.CrossWorkspaceChainCount;
+                    payload.chainSignature = layout.ChainSignature;
+                    payload.chainSameArmAll = true;
+                    StringBuilder chainSb = new StringBuilder(128);
+                    for (int i = 0; i < layout.ChainSummaries.Count; i++)
+                    {
+                        ChainSummary chain = layout.ChainSummaries[i];
+                        if (!chain.SameArm) payload.chainSameArmAll = false;
+                        if (chain.NodeCount > 1)
+                        {
+                            if (chainSb.Length > 0) chainSb.Append(" | ");
+                            chainSb.Append(chain.ArmLabel).Append(':').Append(chain.NodeCount);
+                        }
+                    }
+                    payload.chainSummary = chainSb.ToString();
+                    // First selectable memory node for the selection bridge acceptance test.
+                    for (int i = 0; i < layout.Nodes.Count; i++)
+                    {
+                        LayoutNode candidate = layout.Nodes[i];
+                        if (candidate.IsVisible && !candidate.IsEntity && candidate.Source != null)
+                        {
+                            payload.sampleNodeId = candidate.Id;
+                            payload.sampleNodeTitle = candidate.Source.DisplayTitle;
+                            break;
+                        }
+                    }
+                }
+                if (app != null && app.Nodes != null && app.Nodes.SelectedNode != null)
+                {
+                    payload.selectedNodeId = app.Nodes.SelectedNode.Id;
+                }
             }
             catch (Exception)
             {
@@ -151,8 +253,55 @@ namespace FCANebula
         }
 
         /// <summary>
-        /// JavaScript -> Unity commands (e.g. Electron toolbar buttons).
-        /// Supported: "view:0|1|2", "quality:off|low|medium|high|ultra", "refresh", "labels:0|1".
+        /// Unity -> page selection event (Electron right-hand detail panel sync).
+        /// Null node = cleared selection (payload.clear=true). Repeated ids are suppressed.
+        /// </summary>
+        public static void NotifySelection(LayoutNode node, LayoutModel layout)
+        {
+            if (node != null && !node.IsHierarchyChild && string.Equals(node.Id, _lastSelectionId, StringComparison.Ordinal))
+            {
+                return;
+            }
+            if (node == null && string.Equals(_lastSelectionId, "", StringComparison.Ordinal))
+            {
+                return;
+            }
+            WebGLSelectionPayload payload = new WebGLSelectionPayload();
+            if (node == null)
+            {
+                payload.id = null;
+                payload.selected = false;
+                payload.clear = true;
+                _lastSelectionId = "";
+            }
+            else
+            {
+                payload.id = node.Id;
+                payload.kind = node.IsEntity ? "entity" : "memory";
+                payload.title = node.Source != null ? node.Source.DisplayTitle : node.Id;
+                payload.memoryType = node.Source != null ? node.Source.Type : "";
+                payload.arm = node.Source != null && node.Source.WorkspaceIsDefault ? "default" : node.ArmLabel;
+                payload.importance = node.Source != null ? node.Source.Importance : 0f;
+                payload.occurredAt = node.Source != null ? node.Source.OccurredAt : null;
+                payload.selected = true;
+                payload.clear = false;
+                _lastSelectionId = node.Id;
+            }
+            try
+            {
+                FCABridge_NotifySelect(JsonUtility.ToJson(payload));
+            }
+            catch (Exception ex)
+            {
+                Debug.LogWarning("[FCA] WebGL select bridge failed: " + ex.Message);
+            }
+        }
+
+        /// <summary>
+        /// JavaScript -> Unity commands (e.g. Electron toolbar buttons / acceptance tooling).
+        /// Supported: "view:0|1|2", "quality:off|low|medium|high|ultra", "refresh",
+        /// "labels:0|1", "expand:<nodeId>" (empty/first = first parent), "collapse:<nodeId>",
+        /// "toggle:<nodeId>", "togglefirst", "select:<nodeId>".
         /// </summary>
         public static void OnJsCommand(string command)
         {
@@ -187,6 +336,55 @@ namespace FCANebula
                     if (app.Ui != null)
                     {
                         app.Ui.ShowLabels = arg == "1" || arg == "true";
+                    }
+                    break;
+                case "expand":
+                    if (string.IsNullOrEmpty(arg) || arg == "first") app.ExpandFirstParent();
+                    else app.ExpandParent(arg);
+                    PushState(app.Config, app.Api, app.CurrentLayout);
+                    break;
+                case "collapse":
+                    if (string.IsNullOrEmpty(arg) || arg == "all") app.Hierarchy.CollapseAll();
+                    else app.CollapseParent(arg);
+                    PushState(app.Config, app.Api, app.CurrentLayout);
+                    break;
+                case "toggle":
+                    if (string.IsNullOrEmpty(arg) || arg == "first") app.ToggleFirstParent();
+                    else app.ToggleParent(arg);
+                    PushState(app.Config, app.Api, app.CurrentLayout);
+                    break;
+                case "togglefirst":
+                    app.ToggleFirstParent();
+                    PushState(app.Config, app.Api, app.CurrentLayout);
+                    break;
+                case "select":
+                    if (app.Nodes != null)
+                    {
+                        if (string.IsNullOrEmpty(arg) || arg == "clear")
+                        {
+                            app.Nodes.ClearSelection();
+                        }
+                        else
+                        {
+                            LayoutNode node;
+                            if (app.CurrentLayout != null && app.CurrentLayout.ById.TryGetValue(arg, out node))
+                            {
+                                app.Nodes.Select(node, false);
+                            }
+                        }
+                        NotifySelection(app.Nodes.SelectedNode, app.CurrentLayout);
+                    }
+                    break;
+                case "focus":
+                    if (!string.IsNullOrEmpty(arg) && app.Nodes != null && app.CameraRig != null)
+                    {
+                        LayoutNode focusNode;
+                        if (app.CurrentLayout != null && app.CurrentLayout.ById.TryGetValue(arg, out focusNode))
+                        {
+                            app.Nodes.Select(focusNode, false);
+                            app.CameraRig.FocusOnNode(focusNode);
+                            NotifySelection(focusNode, app.CurrentLayout);
+                        }
                     }
                     break;
                 default:

@@ -33,7 +33,7 @@
         </div>
         <div class="brand-text">
           <span class="brand-name">FCA Memory Atlas</span>
-          <span class="brand-sub">Alpha 0.2</span>
+          <span class="brand-sub">Alpha 0.3</span>
         </div>
       </div>
 
@@ -64,6 +64,11 @@
         <button class="icon-btn" id="btn-import" title="导入记忆（FCA 格式）" aria-label="导入" data-icon="import"></button>
         <button class="icon-btn" id="btn-export" title="导出数据" aria-label="导出" data-icon="export"></button>
         <button class="icon-btn" id="btn-settings" title="设置" aria-label="设置" data-icon="settings"></button>
+        <span class="topbar-sep" aria-hidden="true"></span>
+        <!-- 常驻面板开关：面板收起后仍可在顶栏重新展开（Ctrl+B / Ctrl+J） -->
+        <button class="icon-btn panel-toggle" id="btn-toggle-left" title="隐藏左栏 (Ctrl+B)" aria-label="显示或隐藏左栏" aria-pressed="true" data-icon="panel-left"></button>
+        <button class="icon-btn panel-toggle" id="btn-toggle-right" title="隐藏右栏 (Ctrl+J)" aria-label="显示或隐藏右栏" aria-pressed="true" data-icon="panel-right"></button>
+        <span class="topbar-sep" aria-hidden="true"></span>
         <button class="runtime-pill" id="runtime-pill" title="本地运行时状态">
           <span class="runtime-pill__dot"></span>
           <span class="runtime-pill__label">运行时</span>
@@ -74,6 +79,11 @@
 
     <!-- ======================= 三栏主体 ======================= -->
     <div class="app-body" id="app-body">
+
+      <!-- 面板收起后窗口边缘的常驻展开把手（hover 高亮，点击展开） -->
+      <button class="edge-handle edge-handle--left" id="edge-handle-left" type="button" title="展开左栏 (Ctrl+B)" aria-label="展开左栏" hidden>
+        <span class="edge-handle__chevron">›</span><span class="edge-handle__label">导航</span>
+      </button>
 
       <aside class="panel panel--left" id="left-panel" aria-label="导航与筛选">
         <div class="panel__header">
@@ -151,6 +161,10 @@
           </div>
         </div>
       </aside>
+
+      <button class="edge-handle edge-handle--right" id="edge-handle-right" type="button" title="展开右栏 (Ctrl+J)" aria-label="展开右栏" hidden>
+        <span class="edge-handle__label">详情</span><span class="edge-handle__chevron">‹</span>
+      </button>
     </div>
 
     <!-- ======================= 底部状态栏 ======================= -->

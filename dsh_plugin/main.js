@@ -125,6 +125,8 @@ export function apply(ctx, rawConfig) {
         capturePolicy: config.capturePolicy,
         autoMemory: config.autoMemory,
         autoMemoryAgentNodes: config.autoMemoryAgentNodes,
+        autoMemorySubagentCapture: config.autoMemorySubagentCapture,
+        autoMemoryContextRecovery: config.autoMemoryContextRecovery,
         injectContext: config.injectContext,
       })
     }).catch((error) => {
@@ -145,5 +147,7 @@ export function apply(ctx, rawConfig) {
     capturePolicy: config.capturePolicy,
     autoMemory: config.autoMemory,
     autoMemoryAgentNodes: config.autoMemoryAgentNodes,
+    autoMemorySubagentCapture: config.autoMemorySubagentCapture,
+    autoMemoryContextRecovery: config.autoMemoryContextRecovery,
   })
 }

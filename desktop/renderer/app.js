@@ -96,7 +96,7 @@ function buildInitialState() {
       view: 'atlas',
       previousView: null,
       title: 'FCA Memory Atlas',
-      version: { app: '0.2.0', electron: '—', node: '—', chrome: '—' },
+      version: { app: '0.3.0', electron: '—', node: '—', chrome: '—' },
       dataDir: '',
       logDir: '',
       isFirstRun: true,
@@ -489,6 +489,10 @@ function cacheDom() {
   dom.rightTitle = document.getElementById('right-title');
   dom.btnCollapseLeft = document.getElementById('btn-collapse-left');
   dom.btnCollapseRight = document.getElementById('btn-collapse-right');
+  dom.btnToggleLeft = document.getElementById('btn-toggle-left');
+  dom.btnToggleRight = document.getElementById('btn-toggle-right');
+  dom.edgeHandleLeft = document.getElementById('edge-handle-left');
+  dom.edgeHandleRight = document.getElementById('edge-handle-right');
   dom.btnDetailMore = document.getElementById('btn-detail-more');
   dom.navPrimary = document.getElementById('nav-primary');
   dom.navTypesBody = document.getElementById('nav-types-body');
@@ -624,6 +628,36 @@ function applyLayout() {
   dom.btnCollapseLeft.title = left.collapsed ? '展开左栏' : '收起左栏';
   dom.btnCollapseRight.title = right.collapsed ? '展开右栏' : '收起右栏';
   dom.layoutPreset.value = detectLayoutPreset(left, right);
+  syncPanelToggleUi(left, right);
+}
+
+/**
+ * 同步常驻面板开关（顶栏按钮 + 收起时窗口边缘把手）的状态/文案/aria。
+ * 修复：原收起按钮位于面板内部，面板 width=0 后按钮被裁剪，用户无入口重新展开。
+ */
+function syncPanelToggleUi(left, right) {
+  const pairs = [
+    { open: !left.collapsed, button: dom.btnToggleLeft, handle: dom.edgeHandleLeft, panel: dom.leftPanel, name: '左栏', shortcut: 'Ctrl+B' },
+    { open: !right.collapsed, button: dom.btnToggleRight, handle: dom.edgeHandleRight, panel: dom.rightPanel, name: '右栏', shortcut: 'Ctrl+J' },
+  ];
+  for (const item of pairs) {
+    if (item.button) {
+      item.button.setAttribute('aria-pressed', item.open ? 'true' : 'false');
+      item.button.classList.toggle('is-off', !item.open);
+      item.button.title = `${item.open ? '隐藏' : '显示'}${item.name} (${item.shortcut})`;
+      item.button.setAttribute('aria-label', `${item.open ? '隐藏' : '显示'}${item.name}`);
+      item.button.dataset.state = item.open ? 'open' : 'collapsed';
+    }
+    if (item.handle) {
+      // 仅在面板收起时显示边缘把手，避免与面板内容/拖拽条重叠
+      item.handle.hidden = item.open;
+      item.handle.setAttribute('aria-hidden', item.open ? 'true' : 'false');
+      item.handle.title = `展开${item.name} (${item.shortcut})`;
+    }
+    if (item.panel) {
+      item.panel.setAttribute('aria-expanded', item.open ? 'true' : 'false');
+    }
+  }
 }
 
 function detectLayoutPreset(left, right) {
@@ -964,6 +998,11 @@ function setupTopbar() {
   dom.runtimePill.addEventListener('click', () => openRuntimeStatus());
   dom.btnCollapseLeft.addEventListener('click', () => setPanelCollapsed('left', !store.getState().ui.left.collapsed));
   dom.btnCollapseRight.addEventListener('click', () => setPanelCollapsed('right', !store.getState().ui.right.collapsed));
+  // 常驻面板开关（顶栏）+ 收起时边缘把手：保证面板收起后仍有可点击入口
+  if (dom.btnToggleLeft) dom.btnToggleLeft.addEventListener('click', () => setPanelCollapsed('left', !store.getState().ui.left.collapsed));
+  if (dom.btnToggleRight) dom.btnToggleRight.addEventListener('click', () => setPanelCollapsed('right', !store.getState().ui.right.collapsed));
+  if (dom.edgeHandleLeft) dom.edgeHandleLeft.addEventListener('click', () => setPanelCollapsed('left', false));
+  if (dom.edgeHandleRight) dom.edgeHandleRight.addEventListener('click', () => setPanelCollapsed('right', false));
   dom.layoutPreset.addEventListener('change', () => applyLayoutPreset(dom.layoutPreset.value));
   dom.btnDetailMore.addEventListener('click', () => openDetailMoreMenu());
 
@@ -1198,7 +1237,13 @@ function renderStatusbar() {
     dom.statusFps.textContent = '';
   }
 
-  dom.statusAppVersion.textContent = `Alpha ${state.app.version.app || '0.2.0'}`;
+  dom.statusAppVersion.textContent = `Alpha ${state.app.version.app || '0.3.0'}`;
+  // 标题栏品牌副标题跟随产品版本（避免 index.html 静态 "Alpha 0.2" 与安装包版本漂移）
+  const brandSub = document.querySelector('.brand-sub');
+  if (brandSub) {
+    const appVer = String(state.app.version.app || '0.3.0');
+    brandSub.textContent = `Alpha ${appVer.split('.').slice(0, 2).join('.')}`;
+  }
   dom.runtimePill.dataset.state = runtime.state;
   dom.runtimePillLabel.textContent = runtime.state === 'running' ? `已连接 · v${runtime.version || '?'}` : {
     stopped: '未连接',
@@ -1975,6 +2020,17 @@ function setupKeyboard() {
         runCommand('edit:redo');
         return;
       }
+      // 面板常驻开关快捷键：Ctrl+B 左栏 / Ctrl+J 右栏（与菜单 layout:toggle-* 一致）
+      if (key === 'b') {
+        event.preventDefault();
+        setPanelCollapsed('left', !store.getState().ui.left.collapsed);
+        return;
+      }
+      if (key === 'j') {
+        event.preventDefault();
+        setPanelCollapsed('right', !store.getState().ui.right.collapsed);
+        return;
+      }
       const num = Number.parseInt(event.key, 10);
       if (num >= 1 && num <= 7 && !typing) {
         const map = { 1: 'atlas', 2: 'atlas', 3: 'timeline', 4: 'relations', 5: 'list', 6: 'data', 7: 'settings' };
@@ -2248,7 +2304,7 @@ async function boot() {
   store.patch({
     app: {
       version: {
-        app: info.productVersion || '0.2.0',
+        app: info.productVersion || '0.3.0',
         electron: info.versions ? info.versions.electron : '—',
         node: info.versions ? info.versions.node : '—',
         chrome: info.versions ? info.versions.chrome : '—',

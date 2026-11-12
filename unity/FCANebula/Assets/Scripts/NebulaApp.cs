@@ -21,6 +21,7 @@ namespace FCANebula
         public EdgeRenderer Edges { get; private set; }
         public UiOverlay Ui { get; private set; }
         public NebulaCameraRig CameraRig { get; private set; }
+        public HierarchyController Hierarchy { get; private set; }
 #if !UNITY_WEBGL || UNITY_EDITOR
         public ScreenshotRunner Screenshots { get; private set; }
 #endif
@@ -111,6 +112,7 @@ namespace FCANebula
             }
             Nodes = nodeRenderer;
             Nodes.Initialize(Config, _camera);
+            Nodes.SelectionChanged += OnNodeSelectionChanged;
 
             EdgeRenderer edgeRenderer = GetComponent<EdgeRenderer>();
             if (edgeRenderer == null)
@@ -119,6 +121,14 @@ namespace FCANebula
             }
             Edges = edgeRenderer;
             Edges.Initialize(Config, _camera);
+
+            HierarchyController hierarchy = GetComponent<HierarchyController>();
+            if (hierarchy == null)
+            {
+                hierarchy = gameObject.AddComponent<HierarchyController>();
+            }
+            Hierarchy = hierarchy;
+            Hierarchy.Initialize(this);
 
             UiOverlay ui = GetComponent<UiOverlay>();
             if (ui == null)
@@ -196,6 +206,7 @@ namespace FCANebula
                 Nebula.ApplyLayout(layout);
                 Nodes.SetNodes(layout);
                 Edges.SetGraph(layout, graph);
+                Hierarchy.OnLayoutApplied(layout);
                 CameraRig.FrameLayout(layout);
 
                 if (graph.IsEmpty)
@@ -229,6 +240,14 @@ namespace FCANebula
             {
                 Debug.LogError("[FCA] 应用图数据失败: " + ex);
             }
+        }
+
+        /// <summary>Selection bridge: keep Electron's right-hand detail panel in sync (WebGL only).</summary>
+        void OnNodeSelectionChanged(LayoutNode node)
+        {
+#if UNITY_WEBGL && !UNITY_EDITOR
+            WebGLBridge.NotifySelection(node, CurrentLayout);
+#endif
         }
 
         /// <summary>Switch quality tier (keys 0-4 in the HUD). Re-applies renderer settings.</summary>
@@ -308,6 +327,70 @@ namespace FCANebula
             }
         }
 
+        // -----------------------------------------------------------------
+        // Hierarchy commands (HUD, WebGL JS bridge, Electron toolbar)
+        // -----------------------------------------------------------------
+
+        public bool ExpandFirstParent()
+        {
+            if (Hierarchy == null || CurrentLayout == null) return false;
+            for (int i = 0; i < CurrentLayout.Nodes.Count; i++)
+            {
+                LayoutNode node = CurrentLayout.Nodes[i];
+                if (node.IsParent && node.ChildIds.Count > 0)
+                {
+                    Hierarchy.Expand(node.Id);
+                    if (Nodes != null) Nodes.Select(node, false);
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        public bool ExpandParent(string nodeId)
+        {
+            if (Hierarchy == null || CurrentLayout == null || string.IsNullOrEmpty(nodeId)) return false;
+            LayoutNode node;
+            if (!CurrentLayout.ById.TryGetValue(nodeId, out node) || !node.IsParent) return false;
+            Hierarchy.Expand(nodeId);
+            if (Nodes != null) Nodes.Select(node, false);
+            return true;
+        }
+
+        public bool CollapseParent(string nodeId)
+        {
+            if (Hierarchy == null || string.IsNullOrEmpty(nodeId)) return false;
+            Hierarchy.Collapse(nodeId);
+            return true;
+        }
+
+        public bool ToggleParent(string nodeId)
+        {
+            if (Hierarchy == null || CurrentLayout == null || string.IsNullOrEmpty(nodeId)) return false;
+            LayoutNode node;
+            if (!CurrentLayout.ById.TryGetValue(nodeId, out node) || !node.IsParent) return false;
+            Hierarchy.Toggle(nodeId);
+            if (Nodes != null) Nodes.Select(node, false);
+            return true;
+        }
+
+        public bool ToggleFirstParent()
+        {
+            if (Hierarchy == null || CurrentLayout == null) return false;
+            bool anyExpanded = false;
+            for (int i = 0; i < CurrentLayout.Nodes.Count; i++)
+            {
+                LayoutNode node = CurrentLayout.Nodes[i];
+                if (node.IsParent && node.ChildIds.Count > 0 && Hierarchy.IsExpanded(node.Id)) { anyExpanded = true; break; }
+            }
+            if (anyExpanded)
+            {
+                Hierarchy.CollapseAll();
+                return true;
+            }
+            return ExpandFirstParent();
+        }
+
         public void FocusNode(string nodeId)
         {
             if (Nodes == null || CameraRig == null || string.IsNullOrEmpty(nodeId))
@@ -369,6 +452,10 @@ namespace FCANebula
 
         void OnDestroy()
         {
+            if (Nodes != null)
+            {
+                Nodes.SelectionChanged -= OnNodeSelectionChanged;
+            }
             if (Api != null)
             {
                 Api.GraphUpdated -= OnGraphUpdated;

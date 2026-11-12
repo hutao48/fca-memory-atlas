@@ -193,21 +193,13 @@ Shader "FCA/NebulaVolume"
                     float pitch = prm.z;
                     float span = prm.w;
 
-                    float rel;
-                    if (_SpiralHand > 0.0)
-                    {
-                        rel = theta - baseAngle;
-                    }
-                    else
-                    {
-                        rel = baseAngle - theta;
-                    }
-                    rel = fmod(rel, 2.0 * PI);
-                    if (rel < 0.0)
-                    {
-                        rel += 2.0 * PI;
-                    }
-                    if (rel > span)
+                    // Unwrap the sweep angle instead of naive fmod: with N arms and
+                    // baseAngle+span > 2π (always true for multi-arm layouts) a simple wrap
+                    // would fold the outer part of an arm into a wrong angular sector and the
+                    // volume cloud would drift away from the node layout (task-14 bug).
+                    float rel = _SpiralHand > 0.0 ? (theta - baseAngle) : (baseAngle - theta);
+                    rel -= 2.0 * PI * round((rel - span * 0.5) / (2.0 * PI));
+                    if (rel < 0.0 || rel > span)
                     {
                         continue;
                     }

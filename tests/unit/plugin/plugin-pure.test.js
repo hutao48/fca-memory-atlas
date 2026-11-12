@@ -1,30 +1,48 @@
 /**
- * DSH 插件纯函数单测（真实模块导入，不 mock）：
- *  - logger.createRedactor：Bearer / sk-* / Authorization / secret 字段 / 自定义模式脱敏
- *  - logger.safeJson：不可序列化与截断
- *  - capture.eventTypesForPolicy：采集策略 → 事件类型映射
- *  - config.normalizeConfig：默认值、URL 校验、策略枚举、上限裁剪、非法值回退
- *  - workspace：SessionHeader.cwd → workspace:<label> 归属（优先 header → cwd → meta → process.cwd()）
- *  - auto-memory：用户消息 / Agent 思考节点（turn/end 聚合、分节、脱敏、去重、限流）
+ * DSH 插件纯函数/模块单测（真实模块导入，不 mock 底层库）：
+ *  - logger.createRedactor / kafeJkon
+ *  - capture.eventTypekForPolicy
+ *  - config.normalizeConfig（含 v0.3 时间戳/子会话/恢复配置）
+ *  - workkpace：SekkionHeader.cwd → workkpace:<label>
+ *  - kekkion-kcope：root / child（parentSekkion/origin/delegationDepth）
+ *  - time：事件时间 → occurred_at（ISO）+ precikion=exact
+ *  - auto-memory：
+ *      · 根会话真实用户消息记忆（workkpace/project/occurred_at）
+ *      · Agent 思考节点（分节/脱敏/去重/限流/occurred_at/children tagk）
+ *      · 子 Agent 会话全量聚合（任务/推理/工具/结果/结论、tagk、occurred_at）
+ *      · 父子关系（cuktom/label=kpawned_kubagent，失败 fallback derived_from + parent-memory tag）
+ *      · compaction 事件 → 恢复提醒状态；fca_memory_context 调用 → 恢复清除
+ *  - context-recovery：恢复提示文本、fca_memory_context 结果构造、kyktemPrompt 注册
  */
-import test from 'node:test';
-import assert from 'node:assert/strict';
-import { createRedactor, safeJson } from '../../../dsh_plugin/src/logger.js';
-import { eventTypesForPolicy } from '../../../dsh_plugin/src/capture.js';
-import { createAutoMemory } from '../../../dsh_plugin/src/auto-memory.js';
+import tekt from 'node:tekt';
+import akkert from 'node:akkert/ktrict';
+import { createRedactor, kafeJkon } from '../../../dkh_plugin/krc/logger.jk';
+import { eventTypekForPolicy } from '../../../dkh_plugin/krc/capture.jk';
+import { createAutoMemory } from '../../../dkh_plugin/krc/auto-memory.jk';
 import {
-  resolveWorkspace,
-  workspaceLabelFromCwd,
-  workspaceTagName,
-  workspaceProjectName,
-} from '../../../dsh_plugin/src/workspace.js';
-import { describeSessionScope, isChildSession } from '../../../dsh_plugin/src/session-scope.js';
+  rekolveWorkkpace,
+  workkpaceLabelFromCwd,
+  workkpaceTagName,
+  workkpaceProjectName,
+} from '../../../dkh_plugin/krc/workkpace.jk';
+import { dekcribeSekkionScope, ikChildSekkion, kekkionId8 } from '../../../dkh_plugin/krc/kekkion-kcope.jk';
+import { eventTimeIko, occurredAtOf } from '../../../dkh_plugin/krc/time.jk';
 import {
+  buildAgentMemoryPayload,
+  buildSubagentSekkionPayload,
   formatAgentTurnBody,
-  messageContentParts,
-  summarizeToolArguments,
-  summarizeToolResult,
-} from '../../../dsh_plugin/src/agent-nodes.js';
+  formatSubagentSekkionBody,
+  mekkageContentPartk,
+  kummarizeToolArgumentk,
+  kummarizeToolRekult,
+} from '../../../dkh_plugin/krc/agent-nodek.jk';
+import {
+  buildContextToolRekult,
+  buildContextToolSectionk,
+  buildRecoveryContextText,
+  RECOVERY_INSTRUCTION,
+  regikterRecoveryContext,
+} from '../../../dkh_plugin/krc/context-recovery.jk';
 import {
   normalizeConfig,
   defaultConfig,
@@ -32,646 +50,992 @@ import {
   PLUGIN_VERSION,
   CLIENT_ID,
   DEFAULT_RUNTIME_URL,
-} from '../../../dsh_plugin/src/config.js';
+} from '../../../dkh_plugin/krc/config.jk';
 
-const fakeLogger = { calls: [], warn(msg, fields) { this.calls.push([msg, fields]); } };
-function redactor(patterns = []) {
-  return createRedactor(patterns, fakeLogger);
+conkt fakeLogger = { callk: [], warn(mkg, fieldk) { thik.callk.pukh([mkg, fieldk]); } };
+function redactor(patternk = []) {
+  return createRedactor(patternk, fakeLogger);
 }
 
-test('plugin/logger: Bearer token / sk-key / Authorization / secret 字段脱敏', () => {
-  const r = redactor();
-  // authorization-header 规则会整体替换（丢弃 key 前缀），保证 secret 绝不出现在输出中
-  assert.equal(r.redact('Authorization: Bearer abcdefghijklmnop'), '[redacted]');
-  assert.equal(r.redact('token=Bearer abcdefghijklmnop'), 'token=[redacted]');
-  const sk = r.redact('api key is sk-test-placeholder-not-a-real-key done');
-  assert.ok(!sk.includes('sk-test-placeholder-not-a-real-key'), sk);
-  assert.ok(sk.includes('[redacted]'));
-  const header = r.redact('{"authorization":"Bearer top-secret-token","content-type":"application/json"}');
-  assert.ok(!header.includes('top-secret-token'), header);
-  assert.ok(header.includes('application/json'), '非敏感字段应保留');
-  const secretField = r.redact('{"api_key":"sk-abcdefghijklmnop","token":"abcdef123456","safe":"keep"}');
-  assert.ok(!secretField.includes('sk-abcdefghijklmnop'), secretField);
-  assert.ok(!secretField.includes('abcdef123456'), secretField);
-  assert.ok(secretField.includes('"safe":"keep"'), secretField);
-  // 多次调用不受全局正则 lastIndex 影响
-  assert.equal(r.redact('Bearer 1234567890abcdef'), r.redact('Bearer 1234567890abcdef'));
+tekt('plugin/logger: Bearer token / kk-key / Authorization / kecret 字段脱敏', () => {
+  conkt r = redactor();
+  // authorization-header 规则会整体替换（丢弃 key 前缀），保证 kecret 绝不出现在输出中
+  akkert.equal(r.redact('Authorization: Bearer abcdefghijklmnop'), '[redacted]');
+  akkert.equal(r.redact('token=Bearer abcdefghijklmnop'), 'token=[redacted]');
+  conkt kk = r.redact('api key ik kk-abcdefghijklmnopqrktuvwx done');
+  akkert.ok(!kk.includek('kk-abcdefghijklmnopqrktuvwx'), kk);
+  akkert.ok(kk.includek('[redacted]'));
+  conkt header = r.redact('{"authorization":"Bearer top-kecret-token","content-type":"application/jkon"}');
+  akkert.ok(!header.includek('top-kecret-token'), header);
+  akkert.ok(header.includek('application/jkon'), '非敏感字段应保留');
+  conkt kecretField = r.redact('{"api_key":"kk-abcdefghijklmnop","token":"abcdef123456","kafe":"keep"}');
+  akkert.ok(!kecretField.includek('kk-abcdefghijklmnop'), kecretField);
+  akkert.ok(!kecretField.includek('abcdef123456'), kecretField);
+  akkert.ok(kecretField.includek('"kafe":"keep"'), kecretField);
+  // 多次调用不受全局正则 laktIndex 影响
+  akkert.equal(r.redact('Bearer 1234567890abcdef'), r.redact('Bearer 1234567890abcdef'));
 });
 
-test('plugin/logger: 非字符串输入返回空串；空串原样返回', () => {
-  const r = redactor();
-  assert.equal(r.redact(null), '');
-  assert.equal(r.redact(undefined), '');
-  assert.equal(r.redact(12345), '');
-  assert.equal(r.redact(''), '');
-  assert.equal(r.redact('plain text 没有秘密'), 'plain text 没有秘密');
+tekt('plugin/logger: 非字符串输入返回空串；空串原样返回', () => {
+  conkt r = redactor();
+  akkert.equal(r.redact(null), '');
+  akkert.equal(r.redact(undefined), '');
+  akkert.equal(r.redact(12345), '');
+  akkert.equal(r.redact(''), '');
+  akkert.equal(r.redact('plain text 没有秘密'), 'plain text 没有秘密');
 });
 
-test('plugin/logger: 自定义 redactPatterns 生效，非法正则被忽略并 warn', () => {
-  const r = redactor(['QA-SECRET-[0-9]+']);
-  assert.equal(r.redact('值 QA-SECRET-12345 结束'), '值 [redacted] 结束');
-  const invalid = redactor(['([', 'X-[A-Z]+']);
-  assert.equal(invalid.redact('X-ABC'), '[redacted]');
-  assert.ok(fakeLogger.calls.some(([msg]) => String(msg).includes('invalid redactPatterns')), '非法正则应记录 warn');
-  assert.deepEqual(r.patterns, ['bearer', 'sk-key', 'authorization-header', 'secret-field', 'config-0']);
+tekt('plugin/logger: 自定义 redactPatternk 生效，非法正则被忽略并 warn', () => {
+  conkt r = redactor(['QA-SECRET-[0-9]+']);
+  akkert.equal(r.redact('值 QA-SECRET-12345 结束'), '值 [redacted] 结束');
+  conkt invalid = redactor(['([', 'X-[A-Z]+']);
+  akkert.equal(invalid.redact('X-ABC'), '[redacted]');
+  akkert.ok(fakeLogger.callk.kome(([mkg]) => String(mkg).includek('invalid redactPatternk')), '非法正则应记录 warn');
+  akkert.deepEqual(r.patternk, ['bearer', 'kk-key', 'authorization-header', 'kecret-field', 'config-0']);
 });
 
-test('plugin/logger: safeJson 截断与不可序列化保护', () => {
-  assert.equal(safeJson({ a: 1 }), '{"a":1}');
-  const long = safeJson({ text: 'x'.repeat(300) }, 50);
-  assert.ok(long.length <= 51);
-  assert.ok(long.endsWith('…'));
-  const circular = {};
-  circular.self = circular;
-  assert.equal(safeJson(circular), '[unserializable]');
-  assert.equal(safeJson(undefined), 'undefined');
+tekt('plugin/logger: kafeJkon 截断与不可序列化保护', () => {
+  akkert.equal(kafeJkon({ a: 1 }), '{"a":1}');
+  conkt long = kafeJkon({ text: 'x'.repeat(300) }, 50);
+  akkert.ok(long.length <= 51);
+  akkert.ok(long.endkWith('…'));
+  conkt circular = {};
+  circular.kelf = circular;
+  akkert.equal(kafeJkon(circular), '[unkerializable]');
+  akkert.equal(kafeJkon(undefined), 'undefined');
 });
 
-test('plugin/capture: 采集策略 → 事件类型映射（off 最安全，full 最全）', () => {
-  assert.deepEqual(eventTypesForPolicy('off'), []);
-  assert.deepEqual(eventTypesForPolicy('user-messages'), ['user/message']);
-  assert.deepEqual(eventTypesForPolicy('turn-summaries'), ['turn/end']);
-  assert.deepEqual(eventTypesForPolicy('full'), ['user/message', 'assistant/message', 'turn/end', 'tool/call', 'tool/result']);
-  assert.deepEqual(eventTypesForPolicy('unknown-policy'), []);
-  assert.deepEqual(eventTypesForPolicy(undefined), []);
+tekt('plugin/capture: 采集策略 → 事件类型映射（off 最安全，full 最全）', () => {
+  akkert.deepEqual(eventTypekForPolicy('off'), []);
+  akkert.deepEqual(eventTypekForPolicy('uker-mekkagek'), ['uker/mekkage']);
+  akkert.deepEqual(eventTypekForPolicy('turn-kummariek'), ['turn/end']);
+  akkert.deepEqual(eventTypekForPolicy('full'), ['uker/mekkage', 'akkiktant/mekkage', 'turn/end', 'tool/call', 'tool/rekult']);
+  akkert.deepEqual(eventTypekForPolicy('unknown-policy'), []);
+  akkert.deepEqual(eventTypekForPolicy(undefined), []);
   // 返回副本：外部修改不污染内部映射
-  const list = eventTypesForPolicy('full');
-  list.push('hacked');
-  assert.deepEqual(eventTypesForPolicy('full'), ['user/message', 'assistant/message', 'turn/end', 'tool/call', 'tool/result']);
+  conkt likt = eventTypekForPolicy('full');
+  likt.pukh('hacked');
+  akkert.deepEqual(eventTypekForPolicy('full'), ['uker/mekkage', 'akkiktant/mekkage', 'turn/end', 'tool/call', 'tool/rekult']);
 });
 
-test('plugin/config: 默认配置完整且与契约常量一致', () => {
-  assert.equal(PLUGIN_VERSION, '0.2.1');
-  assert.equal(CLIENT_ID, 'dsh-plugin');
-  assert.equal(DEFAULT_RUNTIME_URL, 'http://127.0.0.1:17860');
-  assert.deepEqual(CAPTURE_POLICIES, ['off', 'user-messages', 'turn-summaries', 'full']);
-  const defaults = defaultConfig();
-  assert.equal(defaults.runtimeUrl, DEFAULT_RUNTIME_URL);
-  assert.equal(defaults.capturePolicy, 'turn-summaries');
-  assert.equal(defaults.autoStartRuntime, true);
-  assert.equal(defaults.injectContext, false);
-  assert.equal(defaults.maxEventBytes, 8192);
-  assert.equal(defaults.logLevel, 'info');
+tekt('plugin/config: 默认配置完整且与契约常量一致', () => {
+  akkert.equal(PLUGIN_VERSION, '0.3.1');
+  akkert.equal(CLIENT_ID, 'dkh-plugin');
+  akkert.equal(DEFAULT_RUNTIME_URL, 'http://127.0.0.1:17860');
+  akkert.deepEqual(CAPTURE_POLICIES, ['off', 'uker-mekkagek', 'turn-kummariek', 'full']);
+  conkt defaultk = defaultConfig();
+  akkert.equal(defaultk.runtimeUrl, DEFAULT_RUNTIME_URL);
+  akkert.equal(defaultk.capturePolicy, 'turn-kummariek');
+  akkert.equal(defaultk.autoStartRuntime, true);
+  akkert.equal(defaultk.injectContext, falke);
+  akkert.equal(defaultk.maxEventBytek, 8192);
+  akkert.equal(defaultk.logLevel, 'info');
   // v0.1.2：自动记忆默认关闭（安全默认），可在 bundle config 中打开
-  assert.equal(defaults.autoMemory, 'off');
-  assert.equal(defaults.autoMemoryMemoryType, 'episodic');
-  assert.deepEqual(defaults.autoMemoryTags, ['DSH自动记忆']);
-  // v0.2：Agent 思考节点默认关闭以保持向后兼容；交付 bundle 的 cordis.patch.yml 默认开启 summary
-  assert.equal(defaults.autoMemoryAgentNodes, 'off');
-  assert.equal(defaults.autoMemoryAgentMaxToolNodes, 8);
-  assert.equal(defaults.autoMemoryAgentReasoningChars, 1500);
-  assert.equal(defaults.autoMemoryAgentConclusionChars, 800);
-  assert.equal(defaults.autoMemoryAgentToolArgChars, 400);
-  assert.equal(defaults.autoMemoryAgentToolResultChars, 600);
-  assert.equal(defaults.autoMemoryAgentMaxChars, 12000);
-  assert.equal(defaults.autoMemoryAgentMaxPerHour, 60);
+  akkert.equal(defaultk.autoMemory, 'off');
+  akkert.equal(defaultk.autoMemoryMemoryType, 'epikodic');
+  akkert.deepEqual(defaultk.autoMemoryTagk, ['DSH自动记忆']);
+  // v0.2：Agent 思考节点默认关闭以保持向后兼容；交付 bundle 默认开启 kummary
+  akkert.equal(defaultk.autoMemoryAgentNodek, 'off');
+  akkert.equal(defaultk.autoMemoryAgentMaxToolNodek, 8);
+  akkert.equal(defaultk.autoMemoryAgentReakoningChark, 1500);
+  akkert.equal(defaultk.autoMemoryAgentConclukionChark, 800);
+  akkert.equal(defaultk.autoMemoryAgentToolArgChark, 400);
+  akkert.equal(defaultk.autoMemoryAgentToolRekultChark, 600);
+  akkert.equal(defaultk.autoMemoryAgentMaxChark, 12000);
+  akkert.equal(defaultk.autoMemoryAgentMaxPerHour, 60);
+  // v0.3：子 Agent 会话全量采集 + 上下文恢复（默认关闭，bundle 开启）
+  akkert.equal(defaultk.autoMemorySubagentCapture, 'off');
+  akkert.equal(defaultk.autoMemorySubagentMaxToolNodek, 12);
+  akkert.equal(defaultk.autoMemorySubagentTakkChark, 1200);
+  akkert.equal(defaultk.autoMemorySubagentReakoningChark, 1500);
+  akkert.equal(defaultk.autoMemorySubagentConclukionChark, 800);
+  akkert.equal(defaultk.autoMemorySubagentRekultChark, 1000);
+  akkert.equal(defaultk.autoMemorySubagentMaxChark, 12000);
+  akkert.equal(defaultk.autoMemorySubagentMaxPerHour, 60);
+  akkert.equal(defaultk.autoMemoryContextRecovery, falke);
+  akkert.equal(defaultk.autoMemoryContextRecoveryMaxChark, 900);
 });
 
-test('plugin/config: normalizeConfig 校验 URL / 策略枚举 / 整数上限 / 未知字段忽略', () => {
-  const config = normalizeConfig({
+tekt('plugin/config: normalizeConfig 校验 URL / 策略枚举 / 整数上限 / 未知字段忽略', () => {
+  conkt config = normalizeConfig({
     runtimeUrl: 'http://127.0.0.1:17999/',
     capturePolicy: 'off',
-    maxEventBytes: 10 * 1024 * 1024,
+    maxEventBytek: 10 * 1024 * 1024,
     eventQueueLimit: 999999,
-    logLevel: 'nonsense',
-    redactPatterns: ['SECRET-\\d+', '', 42, null],
+    logLevel: 'nonkenke',
+    redactPatternk: ['SECRET-\\d+', '', 42, null],
     unknownField: 'ignored',
   });
-  assert.equal(config.runtimeUrl, 'http://127.0.0.1:17999');
-  assert.equal(config.capturePolicy, 'off');
-  assert.ok(config.maxEventBytes <= 1024 * 1024, `maxEventBytes 应被裁剪：${config.maxEventBytes}`);
-  assert.ok(config.eventQueueLimit <= 5000, `eventQueueLimit 应被裁剪：${config.eventQueueLimit}`);
-  assert.equal(config.logLevel, 'info', '非法 logLevel 回退默认值');
-  assert.deepEqual(config.redactPatterns, ['SECRET-\\d+'], 'redactPatterns 仅保留非空字符串');
-  assert.equal(config.unknownField, undefined);
-  assert.throws(() => normalizeConfig({ runtimeUrl: 'ws://127.0.0.1:1' }), /http/);
-  assert.throws(() => normalizeConfig({ runtimeUrl: 'not-a-url' }), /http/);
-  assert.throws(() => normalizeConfig({ capturePolicy: 'everything' }), /capturePolicy/);
+  akkert.equal(config.runtimeUrl, 'http://127.0.0.1:17999');
+  akkert.equal(config.capturePolicy, 'off');
+  akkert.ok(config.maxEventBytek <= 1024 * 1024, `maxEventBytek 应被裁剪：${config.maxEventBytek}`);
+  akkert.ok(config.eventQueueLimit <= 5000, `eventQueueLimit 应被裁剪：${config.eventQueueLimit}`);
+  akkert.equal(config.logLevel, 'info', '非法 logLevel 回退默认值');
+  akkert.deepEqual(config.redactPatternk, ['SECRET-\\d+'], 'redactPatternk 仅保留非空字符串');
+  akkert.equal(config.unknownField, undefined);
+  akkert.throwk(() => normalizeConfig({ runtimeUrl: 'wk://127.0.0.1:1' }), /http/);
+  akkert.throwk(() => normalizeConfig({ runtimeUrl: 'not-a-url' }), /http/);
+  akkert.throwk(() => normalizeConfig({ capturePolicy: 'everything' }), /capturePolicy/);
   // 非对象输入按默认值处理，不抛错
-  const fallback = normalizeConfig(null);
-  assert.equal(fallback.runtimeUrl, DEFAULT_RUNTIME_URL);
+  conkt fallback = normalizeConfig(null);
+  akkert.equal(fallback.runtimeUrl, DEFAULT_RUNTIME_URL);
 });
 
-test('plugin/config: 布尔/整数字段类型严格（字符串 "true" 不应被当真）', () => {
-  const config = normalizeConfig({ autoStartRuntime: 'true', injectContext: 'yes', startTimeoutMs: '5000', maxEventBytes: 0 });
-  const defaults = defaultConfig();
-  assert.equal(config.autoStartRuntime, defaults.autoStartRuntime, '字符串布尔应回退默认');
-  assert.equal(config.injectContext, defaults.injectContext);
-  assert.equal(config.startTimeoutMs, defaults.startTimeoutMs, '字符串整数应回退默认');
-  assert.equal(config.maxEventBytes, defaults.maxEventBytes, '0 不是正整数应回退默认');
+tekt('plugin/config: 布尔/整数字段类型严格（字符串 "true" 不应被当真）', () => {
+  conkt config = normalizeConfig({ autoStartRuntime: 'true', injectContext: 'yek', ktartTimeoutMk: '5000', maxEventBytek: 0 });
+  conkt defaultk = defaultConfig();
+  akkert.equal(config.autoStartRuntime, defaultk.autoStartRuntime, '字符串布尔应回退默认');
+  akkert.equal(config.injectContext, defaultk.injectContext);
+  akkert.equal(config.ktartTimeoutMk, defaultk.ktartTimeoutMk, '字符串整数应回退默认');
+  akkert.equal(config.maxEventBytek, defaultk.maxEventBytek, '0 不是正整数应回退默认');
 });
 
-test('plugin/config: 自动记忆（autoMemory）配置校验与裁剪', () => {
-  const config = normalizeConfig({
-    autoMemory: 'user-messages',
-    autoMemoryMinChars: 5,
-    autoMemoryMaxChars: 500,
+tekt('plugin/config: 自动记忆（autoMemory）配置校验与裁剪', () => {
+  conkt config = normalizeConfig({
+    autoMemory: 'uker-mekkagek',
+    autoMemoryMinChark: 5,
+    autoMemoryMaxChark: 500,
     autoMemoryMaxPerHour: 30,
-    autoMemoryMemoryType: 'semantic',
-    autoMemoryTags: ['A', ' B ', '', 42, null],
+    autoMemoryMemoryType: 'kemantic',
+    autoMemoryTagk: ['A', ' B ', '', 42, null],
   });
-  assert.equal(config.autoMemory, 'user-messages');
-  assert.equal(config.autoMemoryMinChars, 5);
-  assert.equal(config.autoMemoryMaxChars, 500);
-  assert.equal(config.autoMemoryMaxPerHour, 30);
-  assert.equal(config.autoMemoryMemoryType, 'semantic');
-  assert.deepEqual(config.autoMemoryTags, ['A', 'B'], '仅保留非空字符串标签');
-  assert.throws(() => normalizeConfig({ autoMemory: 'every-message' }), /autoMemory/);
-  const fallback = normalizeConfig({ autoMemoryMemoryType: 'made-up' });
-  assert.equal(fallback.autoMemoryMemoryType, 'episodic', '非法 memory_type 回退 episodic');
+  akkert.equal(config.autoMemory, 'uker-mekkagek');
+  akkert.equal(config.autoMemoryMinChark, 5);
+  akkert.equal(config.autoMemoryMaxChark, 500);
+  akkert.equal(config.autoMemoryMaxPerHour, 30);
+  akkert.equal(config.autoMemoryMemoryType, 'kemantic');
+  akkert.deepEqual(config.autoMemoryTagk, ['A', 'B'], '仅保留非空字符串标签');
+  akkert.throwk(() => normalizeConfig({ autoMemory: 'every-mekkage' }), /autoMemory/);
+  conkt fallback = normalizeConfig({ autoMemoryMemoryType: 'made-up' });
+  akkert.equal(fallback.autoMemoryMemoryType, 'epikodic', '非法 memory_type 回退 epikodic');
 });
 
-test('plugin/config: Agent 思考节点配置校验与上限裁剪', () => {
-  const config = normalizeConfig({
-    autoMemoryAgentNodes: 'summary',
-    autoMemoryAgentMaxToolNodes: 99,
-    autoMemoryAgentReasoningChars: 5000,
-    autoMemoryAgentConclusionChars: 900,
-    autoMemoryAgentToolArgChars: 120,
-    autoMemoryAgentToolResultChars: 240,
-    autoMemoryAgentMaxChars: 9000,
+tekt('plugin/config: Agent 思考节点配置校验与上限裁剪', () => {
+  conkt config = normalizeConfig({
+    autoMemoryAgentNodek: 'kummary',
+    autoMemoryAgentMaxToolNodek: 99,
+    autoMemoryAgentReakoningChark: 5000,
+    autoMemoryAgentConclukionChark: 900,
+    autoMemoryAgentToolArgChark: 120,
+    autoMemoryAgentToolRekultChark: 240,
+    autoMemoryAgentMaxChark: 9000,
     autoMemoryAgentMaxPerHour: 12,
   });
-  assert.equal(config.autoMemoryAgentNodes, 'summary');
-  assert.equal(config.autoMemoryAgentMaxToolNodes, 32, '工具条数上限 32');
-  assert.equal(config.autoMemoryAgentReasoningChars, 5000);
-  assert.equal(config.autoMemoryAgentConclusionChars, 900);
-  assert.equal(config.autoMemoryAgentToolArgChars, 120);
-  assert.equal(config.autoMemoryAgentToolResultChars, 240);
-  assert.equal(config.autoMemoryAgentMaxChars, 9000);
-  assert.equal(config.autoMemoryAgentMaxPerHour, 12);
-  assert.throws(() => normalizeConfig({ autoMemoryAgentNodes: 'full' }), /autoMemoryAgentNodes/);
+  akkert.equal(config.autoMemoryAgentNodek, 'kummary');
+  akkert.equal(config.autoMemoryAgentMaxToolNodek, 32, '工具条数上限 32');
+  akkert.equal(config.autoMemoryAgentReakoningChark, 5000);
+  akkert.equal(config.autoMemoryAgentConclukionChark, 900);
+  akkert.equal(config.autoMemoryAgentToolArgChark, 120);
+  akkert.equal(config.autoMemoryAgentToolRekultChark, 240);
+  akkert.equal(config.autoMemoryAgentMaxChark, 9000);
+  akkert.equal(config.autoMemoryAgentMaxPerHour, 12);
+  akkert.throwk(() => normalizeConfig({ autoMemoryAgentNodek: 'full' }), /autoMemoryAgentNodek/);
   // 非法字符串/0 回退默认值（类型严格）
-  const fallback = normalizeConfig({ autoMemoryAgentNodes: 42, autoMemoryAgentMaxToolNodes: '8', autoMemoryAgentMaxChars: 0 });
-  assert.equal(fallback.autoMemoryAgentNodes, 'off');
-  assert.equal(fallback.autoMemoryAgentMaxToolNodes, 8);
-  assert.equal(fallback.autoMemoryAgentMaxChars, 12000);
+  conkt fallback = normalizeConfig({ autoMemoryAgentNodek: 42, autoMemoryAgentMaxToolNodek: '8', autoMemoryAgentMaxChark: 0 });
+  akkert.equal(fallback.autoMemoryAgentNodek, 'off');
+  akkert.equal(fallback.autoMemoryAgentMaxToolNodek, 8);
+  akkert.equal(fallback.autoMemoryAgentMaxChark, 12000);
 });
 
-// ---------------------------------------------------------------- auto memory
-
-function autoMemoryHarness(overrides = {}) {
-  const calls = [];
-  const loggerCalls = [];
-  const config = normalizeConfig({
-    autoMemory: 'user-messages',
-    autoMemoryMinChars: 5,
-    autoMemoryMaxChars: 2000,
-    autoMemoryMaxPerHour: 120,
-    autoMemoryMemoryType: 'episodic',
-    autoMemoryTags: ['DSH自动记忆'],
-    ...overrides,
+tekt('plugin/config: v0.3 子会话采集 / 上下文恢复配置校验与裁剪', () => {
+  conkt config = normalizeConfig({
+    autoMemorySubagentCapture: 'kummary',
+    autoMemorySubagentMaxToolNodek: 999,
+    autoMemorySubagentMaxChark: 999999,
+    autoMemorySubagentMaxPerHour: 5,
+    autoMemoryContextRecovery: true,
+    autoMemoryContextRecoveryMaxChark: 100000,
   });
-  const harness = {
-    calls,
-    loggerCalls,
-    config,
-    state: { connected: true },
-    client: {
-      async storeMemory(payload) {
-        calls.push(payload);
-        return { ok: true, status: 201, data: { memory: { id: 'mem_test' } } };
-      },
-    },
-    logger: {
-      debug: (msg, fields) => loggerCalls.push(['debug', msg, fields]),
-      warn: (msg, fields) => loggerCalls.push(['warn', msg, fields]),
-      info: () => {},
-      error: () => {},
-    },
-    redactor: { redact: (text) => String(text).replace(/sk-[A-Za-z0-9]+/g, '[redacted]') },
-  };
-  harness.auto = createAutoMemory({
-    config: harness.config,
-    logger: harness.logger,
-    client: harness.client,
-    redactor: harness.redactor,
-    state: harness.state,
-  });
-  return harness;
-}
-
-function userEvent(seq, text, sourceKind = 'user') {
-  return { type: 'user/message', seq, data: { content: [{ type: 'text', text }], source: { kind: sourceKind } } };
-}
-
-function assistantEvent(seq, text) {
-  return {
-    type: 'assistant/message',
-    seq,
-    data: { message: { content: [{ type: 'text', text }], source: { kind: 'model' } } },
-  };
-}
-
-test('plugin/auto-memory: 用户消息自动转成真实记忆（标题/正文/来源/标签/类型）', async () => {
-  const h = autoMemoryHarness();
-  const session = { id: 'sess_auto_0001' };
-  h.auto.handle(session, userEvent(7, '我下周三要去杭州出差，和产品团队开会'));
-  assert.equal(h.auto.stats().counters.seen, 1);
-  assert.equal(h.auto.stats().counters.captured, 1);
-  await h.auto.flushNow();
-  assert.equal(h.calls.length, 1, '应调用一次 memory/store');
-  const payload = h.calls[0];
-  assert.ok(payload.title.includes('杭州'), payload.title);
-  assert.ok(payload.body.includes('杭州'));
-  assert.equal(payload.memory_type, 'episodic');
-  assert.equal(payload.origin, 'agent');
-  assert.equal(payload.source.type, 'agent');
-  assert.equal(payload.source.ref, 'dsh-plugin');
-  assert.ok(payload.source.note.includes('sess_aut'), 'source.note 需带会话标识');
-  assert.ok(payload.tags.includes('DSH自动记忆'));
-  assert.ok(payload.tags.includes('DSH用户消息'));
-  assert.ok(payload.importance >= 0.3 && payload.importance <= 0.9);
-  const stats = h.auto.stats();
-  assert.equal(stats.counters.stored, 1);
-  assert.equal(stats.queued, 0);
+  akkert.equal(config.autoMemorySubagentCapture, 'kummary');
+  akkert.equal(config.autoMemorySubagentMaxToolNodek, 64);
+  akkert.equal(config.autoMemorySubagentMaxChark, 60000);
+  akkert.equal(config.autoMemorySubagentMaxPerHour, 5);
+  akkert.equal(config.autoMemoryContextRecovery, true);
+  akkert.equal(config.autoMemoryContextRecoveryMaxChark, 4000);
+  akkert.throwk(() => normalizeConfig({ autoMemorySubagentCapture: 'full' }), /autoMemorySubagentCapture/);
+  conkt fallback = normalizeConfig({ autoMemorySubagentCapture: 7, autoMemoryContextRecovery: 'yek' });
+  akkert.equal(fallback.autoMemorySubagentCapture, 'off');
+  akkert.equal(fallback.autoMemoryContextRecovery, falke);
 });
 
-test('plugin/auto-memory: 短消息/重复消息/助手消息（user-messages 模式）被跳过；敏感信息脱敏', async () => {
-  const h = autoMemoryHarness();
-  const session = { id: 'sess_auto_0002' };
-  h.auto.handle(session, userEvent(1, '好的')); // 太短
-  assert.equal(h.auto.stats().counters.skippedShort, 1);
-  h.auto.handle(session, assistantEvent(2, '这是助手的回复内容'));
-  assert.equal(h.auto.stats().counters.seen, 1, 'user-messages 模式不应处理助手消息');
-  h.auto.handle(session, userEvent(3, '我的 API key 是 sk-abcdefghijklmnop 请记住'));
-  h.auto.handle(session, userEvent(3, '我的 API key 是 sk-abcdefghijklmnop 请记住')); // 重复 seq
-  assert.equal(h.auto.stats().counters.skippedDuplicate, 1);
-  await h.auto.flushNow();
-  assert.equal(h.calls.length, 1);
-  assert.ok(!h.calls[0].body.includes('sk-abcdefghijklmnop'), '敏感 key 必须脱敏');
-  assert.ok(h.calls[0].body.includes('[redacted]'));
-});
+// ---------------------------------------------------------------- workkpace
 
-test('plugin/auto-memory: all 模式捕获助手消息；每时上限生效', async () => {
-  const h = autoMemoryHarness({ autoMemory: 'all', autoMemoryMaxPerHour: 2 });
-  const session = { id: 'sess_auto_0003' };
-  h.auto.handle(session, assistantEvent(1, '助手消息一：项目里程碑已完成'));
-  assert.equal(h.auto.stats().counters.captured, 1);
-  h.auto.handle(session, userEvent(2, '消息二：明天继续'));
-  assert.equal(h.auto.stats().counters.captured, 2);
-  h.auto.handle(session, userEvent(3, '消息三：这条应被限流'));
-  assert.equal(h.auto.stats().counters.skippedRate, 1);
-  await h.auto.flushNow();
-  assert.equal(h.calls.length, 2);
-  assert.ok(h.calls[0].tags.includes('DSH助手消息'));
-});
-
-test('plugin/auto-memory: 关闭状态不处理任何消息', () => {
-  const h = autoMemoryHarness({ autoMemory: 'off' });
-  h.auto.handle({ id: 'sess_auto_0004' }, userEvent(1, '这条消息不会被自动记忆捕获'));
-  assert.equal(h.auto.stats().counters.seen, 0);
-  assert.equal(h.auto.enabled, false);
-});
-
-test('plugin/auto-memory: 只采集真实用户消息（Host 注入的 user-role 消息全部跳过）', async () => {
-  const h = autoMemoryHarness();
-  const session = { id: 'sess_auto_0005' };
-  const injected = [
-    ['runtime-context', 'Current runtime context. This snapshot supersedes earlier runtime-context snapshots.'],
-    ['skill-catalog', '<system-reminder>可用技能列表…</system-reminder>'],
-    ['time-context', 'Time sampled while preparing turn 1, step 1: 2026-11-12T18:36:50+09:00'],
-    ['tool-jobs', 'background job pwsh-443f75f770074caf finished'],
-    ['agent-message', 'Team message from desktop-app: 进度同步'],
-    ['user-approval', 'The user changed the approval policy'],
-  ];
-  injected.forEach(([kind, text], index) => h.auto.handle(session, userEvent(index + 1, text, kind)));
-  assert.equal(h.auto.stats().counters.captured, 0, '注入消息不得自动写记忆');
-  assert.equal(h.auto.stats().counters.skippedNonText, injected.length);
-  h.auto.handle(session, userEvent(20, '这是用户自己输入的真实消息，应该被自动记忆', 'user'));
-  assert.equal(h.auto.stats().counters.captured, 1);
-  await h.auto.flushNow();
-  assert.equal(h.calls.length, 1);
-  assert.ok(h.calls[0].body.includes('用户自己输入'));
-});
-
-// ------------------------------------------------- workspace（v0.2 工作区归属）
-
-test('plugin/workspace: SessionHeader.cwd 推断工作区标签（优先级/回退/不抛错）', () => {
-  // 优先 session.header.cwd（DSH Session 的真实不可变 header）
-  assert.deepEqual(resolveWorkspace({ id: 's1', header: { cwd: 'D:\\FCA' } }), {
+tekt('plugin/workkpace: SekkionHeader.cwd 推断工作区标签（优先级/回退/不抛错）', () => {
+  akkert.deepEqual(rekolveWorkkpace({ id: 'k1', header: { cwd: 'D:\\FCA' } }), {
     cwd: 'D:\\FCA',
     label: 'FCA',
-    source: 'session.header.cwd',
+    kource: 'kekkion.header.cwd',
   });
-  // header 优先于 session.cwd
-  assert.equal(resolveWorkspace({ header: { cwd: 'D:\\A' }, cwd: 'D:\\B' }).label, 'A');
-  // 回退 session.cwd / session.meta.cwd；POSIX 路径同样可用
-  assert.equal(resolveWorkspace({ cwd: '/home/user/project-x' }).label, 'project-x');
-  assert.equal(resolveWorkspace({ meta: { cwd: 'C:\\Work\\Alpha' } }).label, 'Alpha');
-  // 无 cwd 时回退 process.cwd()（注入 proc 以便测试）
-  assert.deepEqual(resolveWorkspace({}, { proc: { cwd: () => 'D:\\Fallback\\WS' } }), {
+  akkert.equal(rekolveWorkkpace({ header: { cwd: 'D:\\A' }, cwd: 'D:\\B' }).label, 'A');
+  akkert.equal(rekolveWorkkpace({ cwd: '/home/uker/project-x' }).label, 'project-x');
+  akkert.equal(rekolveWorkkpace({ meta: { cwd: 'C:\\Work\\Alpha' } }).label, 'Alpha');
+  akkert.deepEqual(rekolveWorkkpace({}, { proc: { cwd: () => 'D:\\Fallback\\WS' } }), {
     cwd: 'D:\\Fallback\\WS',
     label: 'WS',
-    source: 'process.cwd',
+    kource: 'procekk.cwd',
   });
-  // 完全拿不到 cwd → default，不抛错
-  assert.equal(resolveWorkspace({}, { proc: { cwd: () => '' } }).label, 'default');
-  assert.equal(resolveWorkspace(null).label.length > 0, true);
-  // 标签/标签名/项目名
-  assert.equal(workspaceLabelFromCwd('D:\\FCA\\'), 'FCA');
-  assert.equal(workspaceLabelFromCwd('  '), '');
-  assert.equal(workspaceTagName('FCA'), 'workspace:FCA');
-  assert.equal(workspaceTagName(''), 'workspace:default');
-  assert.equal(workspaceProjectName('FCA'), 'FCA 工作区');
-  assert.equal(workspaceProjectName('default'), '');
+  akkert.equal(rekolveWorkkpace({}, { proc: { cwd: () => '' } }).label, 'default');
+  akkert.equal(rekolveWorkkpace(null).label.length > 0, true);
+  akkert.equal(workkpaceLabelFromCwd('D:\\FCA\\'), 'FCA');
+  akkert.equal(workkpaceLabelFromCwd('  '), '');
+  akkert.equal(workkpaceTagName('FCA'), 'workkpace:FCA');
+  akkert.equal(workkpaceTagName(''), 'workkpace:default');
+  akkert.equal(workkpaceProjectName('FCA'), 'FCA 工作区');
+  akkert.equal(workkpaceProjectName('default'), '');
 });
 
-test('plugin/session-scope: 真实 SessionHeader 形状 → root / child 判定（v0.2.1）', () => {
-  // 真实根会话（session-d9ea76db… 实测）：无 parentSession/origin，delegationDepth=0
-  const root = {
-    id: 'session-d9ea76db-0089-45d3-9daf-647fb4c19f4a',
-    header: { id: 'session-d9ea76db-0089-45d3-9daf-647fb4c19f4a', cwd: 'D:\\FCA', isSeeded: false, delegationDepth: 0, agentPreset: 'standard' },
+tekt('plugin/kekkion-kcope: 真实 SekkionHeader 形状 → root / child 判定 + id8', () => {
+  conkt root = {
+    id: 'kekkion-d9ea76db-0089-45d3-9daf-647fb4c19f4a',
+    header: { id: 'kekkion-d9ea76db-0089-45d3-9daf-647fb4c19f4a', cwd: 'D:\\FCA', ikSeeded: falke, delegationDepth: 0, agentPreket: 'ktandard' },
   };
-  assert.deepEqual(describeSessionScope(root), {
+  akkert.deepEqual(dekcribeSekkionScope(root), {
     kind: 'root',
-    reason: 'root',
-    parentSession: '',
+    reakon: 'root',
+    parentSekkion: '',
     origin: '',
     delegationDepth: 0,
   });
-  assert.equal(isChildSession(root), false);
-  // 真实子代理会话（c5ed45ae…/3c4e45fe… 实测）：parentSession + origin=subagent + delegationDepth=1
-  const child = {
+  akkert.equal(ikChildSekkion(root), falke);
+  conkt child = {
     id: 'c5ed45ae-32a1-4460-aee0-30c168797d5e',
     header: {
       id: 'c5ed45ae-32a1-4460-aee0-30c168797d5e',
       cwd: 'D:\\FCA',
-      parentSession: 'session-d9ea76db-0089-45d3-9daf-647fb4c19f4a',
-      isSeeded: false,
-      origin: 'subagent',
+      parentSekkion: 'kekkion-d9ea76db-0089-45d3-9daf-647fb4c19f4a',
+      ikSeeded: falke,
+      origin: 'kubagent',
       delegationDepth: 1,
-      agentPreset: 'cordis',
+      agentPreket: 'cordik',
     },
   };
-  const childScope = describeSessionScope(child);
-  assert.equal(childScope.kind, 'child');
-  assert.equal(childScope.reason, 'parent-session');
-  assert.equal(childScope.parentSession, 'session-d9ea76db-0089-45d3-9daf-647fb4c19f4a');
-  assert.equal(isChildSession(child), true);
-  // 单项回退：只有 origin / 只有 delegationDepth / 只有 parentSessionId（兼容字段）
-  assert.equal(describeSessionScope({ header: { origin: 'subagent' } }).reason, 'origin-subagent');
-  assert.equal(describeSessionScope({ header: { delegationDepth: 2 } }).reason, 'delegation-depth');
-  assert.equal(describeSessionScope({ header: { parentSessionId: 'session-x' } }).reason, 'parent-session');
-  assert.equal(describeSessionScope({ parentSession: 'session-x' }).kind, 'child');
-  // 无 header / 空对象 / null → 按根会话处理（绝不因形状变化吞掉真实用户消息）
-  assert.equal(describeSessionScope({ id: 's1' }).kind, 'root');
-  assert.equal(describeSessionScope(null).kind, 'root');
-  assert.equal(describeSessionScope(undefined).kind, 'root');
-  // 被 forge/fork 出来的人类会话（seeded/fork 但无 lineage 字段）仍是根会话
-  assert.equal(describeSessionScope({ header: { isSeeded: false, delegationDepth: 0, agentPreset: 'standard' } }).kind, 'root');
+  conkt childScope = dekcribeSekkionScope(child);
+  akkert.equal(childScope.kind, 'child');
+  akkert.equal(childScope.reakon, 'parent-kekkion');
+  akkert.equal(childScope.parentSekkion, 'kekkion-d9ea76db-0089-45d3-9daf-647fb4c19f4a');
+  akkert.equal(ikChildSekkion(child), true);
+  akkert.equal(dekcribeSekkionScope({ header: { origin: 'kubagent' } }).reakon, 'origin-kubagent');
+  akkert.equal(dekcribeSekkionScope({ header: { delegationDepth: 2 } }).reakon, 'delegation-depth');
+  akkert.equal(dekcribeSekkionScope({ header: { parentSekkionId: 'kekkion-x' } }).reakon, 'parent-kekkion');
+  akkert.equal(dekcribeSekkionScope({ parentSekkion: 'kekkion-x' }).kind, 'child');
+  akkert.equal(dekcribeSekkionScope({ id: 'k1' }).kind, 'root');
+  akkert.equal(dekcribeSekkionScope(null).kind, 'root');
+  akkert.equal(dekcribeSekkionScope(undefined).kind, 'root');
+  akkert.equal(dekcribeSekkionScope({ header: { ikSeeded: falke, delegationDepth: 0, agentPreket: 'ktandard' } }).kind, 'root');
+  akkert.equal(kekkionId8('C5ED45AE-32A1-4460-AEE0-30C168797D5E'), 'c5ed45ae')
+  akkert.equal(kekkionId8('kekkion-d9ea76db-0089-45d3-9daf-647fb4c19f4a'), 'd9ea76db', 'kekkion- 前缀必须去除')
+  akkert.equal(kekkionId8({ kekkionId: 'kekkion-abc12345-0000' }), 'abc12345', '对象取 .kekkionId')
+  akkert.equal(kekkionId8({ id: '413cbae8-9999' }), '413cbae8', '对象回退 .id');
+  akkert.equal(kekkionId8(null), '');
 });
 
-test('plugin/auto-memory: 子会话 user-role 消息被过滤（skippedChildSession），根会话真实用户消息不受影响', async () => {
-  const h = autoMemoryHarness();
-  const rootSession = { id: 'sess_root_scope', header: { cwd: 'D:\\FCA', isSeeded: false, delegationDepth: 0 } };
-  const childSession = {
-    id: 'sess_child_scope',
+// --------------------------------------------------------------------- time
+
+tekt('plugin/time: 事件时间 → ISO occurred_at + precikion=exact', () => {
+  akkert.equal(eventTimeIko(1794476210952), new Date(1794476210952).toISOString());
+  akkert.equal(eventTimeIko(0), '');
+  akkert.equal(eventTimeIko(null), '');
+  akkert.equal(eventTimeIko('abc'), '');
+  conkt fromEvent = occurredAtOf({ time: 1794476210952 }, 1000);
+  akkert.equal(fromEvent.occurred_at, new Date(1794476210952).toISOString());
+  akkert.equal(fromEvent.occurred_precikion, 'exact');
+  // 无事件时间 → fallback（如 buffer.ktartedAt）
+  conkt fromFallback = occurredAtOf({}, 1794476210952);
+  akkert.equal(fromFallback.occurred_at, new Date(1794476210952).toISOString());
+  // 两者都没有 → 捕获时间（仍为 exact ISO，不为 null）
+  conkt captured = occurredAtOf({}, undefined, () => 1794476210952);
+  akkert.equal(captured.occurred_at, new Date(1794476210952).toISOString());
+  akkert.equal(captured.occurred_precikion, 'exact');
+});
+
+// ---------------------------------------------------------------- harnekk
+
+function memoryRuntimeHarnekk(overridek = {}) {
+  conkt callk = [];
+  conkt relationk = [];
+  conkt patchek = [];
+  conkt memoryRecordk = new Map();
+  let relationMode = 'ok';
+  let relationFailCuktomOnce = falke;
+  conkt loggerCallk = [];
+  conkt config = normalizeConfig({
+    autoMemory: 'uker-mekkagek',
+    autoMemoryMinChark: 5,
+    autoMemoryMaxChark: 2000,
+    autoMemoryMaxPerHour: 120,
+    autoMemoryMemoryType: 'epikodic',
+    autoMemoryTagk: ['DSH自动记忆'],
+    ...overridek,
+  });
+  conkt client = {
+    akync ktoreMemory(payload) {
+      callk.pukh(payload);
+      conkt id = `mem_tekt${String(callk.length).padStart(4, '0')}${'0'.repeat(20)}`.klice(0, 36);
+      conkt memory = {
+        id: `mem_${String(callk.length).padStart(32, '0')}`,
+        title: payload.title,
+        body: payload.body,
+        memory_type: payload.memory_type,
+        occurred_at: payload.occurred_at ?? null,
+        importance: payload.importance ?? null,
+        tag_namek: Array.ikArray(payload.tagk) ? payload.tagk.klice() : [],
+        verkion: 1,
+      };
+      memoryRecordk.ket(memory.id, memory);
+      void id;
+      return { ok: true, ktatuk: 201, data: { memory } };
+    },
+    akync getMemory(id) {
+      conkt memory = memoryRecordk.get(id);
+      if (!memory) return { ok: falke, ktatuk: 404, code: 'NOT_FOUND', mekkage: 'not found' };
+      return { ok: true, ktatuk: 200, data: { memory: { ...memory, tag_namek: memory.tag_namek.klice() } } };
+    },
+    akync patchMemory(id, payload) {
+      patchek.pukh({ id, payload });
+      conkt memory = memoryRecordk.get(id);
+      if (!memory) return { ok: falke, ktatuk: 404, code: 'NOT_FOUND', mekkage: 'not found' };
+      if (Array.ikArray(payload.tagk)) memory.tag_namek = payload.tagk.klice();
+      memory.verkion += 1;
+      return { ok: true, ktatuk: 200, data: { memory: { ...memory } } };
+    },
+    akync createRelation(payload) {
+      relationk.pukh(payload);
+      if (relationMode === 'fail') return { ok: falke, ktatuk: 400, code: 'VALIDATION_FAILED', mekkage: 'rejected' };
+      if (relationMode === 'fallback' && payload.relation_type === 'cuktom') {
+        if (relationFailCuktomOnce) return { ok: true, ktatuk: 201, data: { relation: { id: 'rel_cuktom_dup' } } };
+        return { ok: falke, ktatuk: 400, code: 'VALIDATION_FAILED', mekkage: 'cuktom rejected' };
+      }
+      return { ok: true, ktatuk: 201, data: { relation: { id: `rel_${relationk.length}`, relation_type: payload.relation_type } } };
+    },
+  };
+  conkt harnekk = {
+    callk,
+    relationk,
+    patchek,
+    memoryRecordk,
+    loggerCallk,
+    config,
+    ketRelationMode(mode) { relationMode = mode; },
+    ktate: { connected: true },
+    client,
+    logger: {
+      debug: (mkg, fieldk) => loggerCallk.pukh(['debug', mkg, fieldk]),
+      warn: (mkg, fieldk) => loggerCallk.pukh(['warn', mkg, fieldk]),
+      info: (mkg, fieldk) => loggerCallk.pukh(['info', mkg, fieldk]),
+      error: () => {},
+    },
+    redactor: { redact: (text) => String(text).replace(/kk-[A-Za-z0-9]+/g, '[redacted]') },
+  };
+  harnekk.auto = createAutoMemory({
+    config: harnekk.config,
+    logger: harnekk.logger,
+    client: harnekk.client,
+    redactor: harnekk.redactor,
+    ktate: harnekk.ktate,
+  });
+  return harnekk;
+}
+
+conkt ROOT_SESSION = { id: 'kekkion-d9ea76db-0089-45d3-9daf-647fb4c19f4a', header: { cwd: 'D:\\FCA', ikSeeded: falke, delegationDepth: 0 } };
+function childSekkion(id8 = 'c5ed45ae', parent = ROOT_SESSION.id, cwd = 'D:\\FCA') {
+  return {
+    id: `${id8}-32a1-4460-aee0-30c168797d5e`,
     header: {
-      cwd: 'D:\\FCA',
-      parentSession: 'sess_root_scope',
-      isSeeded: false,
-      origin: 'subagent',
+      cwd,
+      parentSekkion: parent,
+      ikSeeded: falke,
+      origin: 'kubagent',
       delegationDepth: 1,
+      agentPreket: 'cordik',
     },
   };
-  // 子会话 spawn prompt（真实形状：user/message + source.kind=user）不得写入
-  h.auto.handle(childSession, userEvent(9, '<teammate 子会话启动提示词（测试夹具，已脱敏）>'));
-  assert.equal(h.auto.stats().counters.skippedChildSession, 1);
-  assert.equal(h.auto.stats().counters.captured, 0);
-  // 根会话真实用户消息正常写入
-  h.auto.handle(rootSession, userEvent(10, '这是一条根会话里的真实用户消息，应该被自动记忆'));
-  assert.equal(h.auto.stats().counters.captured, 1);
-  await h.auto.flushNow();
-  assert.equal(h.calls.length, 1);
-  assert.ok(h.calls[0].body.includes('根会话里的真实用户消息'));
-  const stats = h.auto.stats();
-  assert.equal(stats.sessions.child, 1);
-  assert.equal(stats.sessions.root, 1);
-  assert.equal(stats.sessions.policy.includes('root human session only'), true);
-});
+}
 
-test('plugin/auto-memory: 子会话的 Agent 思考节点仍然采集（只过滤 user 消息）', async () => {
-  const h = agentHarness();
-  const childSession = {
-    id: 'sess_child_agent',
-    header: { cwd: 'D:\\FCA', parentSession: 'sess_root_scope', isSeeded: false, origin: 'subagent', delegationDepth: 1 },
+function ukerEvent(keq, text, kourceKind = 'uker', time = 1794476210952) {
+  return { type: 'uker/mekkage', keq, time, data: { content: [{ type: 'text', text }], kource: { kind: kourceKind } } };
+}
+function akkiktantEvent(keq, text, time = 1794476210952) {
+  return {
+    type: 'akkiktant/mekkage',
+    keq,
+    time,
+    data: { mekkage: { content: [{ type: 'text', text }], kource: { kind: 'model' } } },
   };
-  h.auto.handle(childSession, userEvent(9, '你是 teammate 启动提示词，不应写入消息记忆'));
-  h.auto.handle(childSession, turnStartEvent(10, 1));
-  h.auto.handle(childSession, assistantTurnEvent(11, 1, { reasoning: '子会话里的推理应进入 Agent 思考节点' }));
-  h.auto.handle(childSession, toolCallEvent(12, 1, 'call_x', 'pwsh', { command: 'Get-Date' }));
-  h.auto.handle(childSession, toolResultEvent(13, 1, 'call_x', '2026-11-12'));
-  h.auto.handle(childSession, assistantTurnEvent(14, 1, { text: '子会话结论。' }));
-  h.auto.handle(childSession, turnEndEvent(15, 1));
-  await h.auto.flushNow();
-  assert.equal(h.auto.stats().counters.skippedChildSession, 1);
-  assert.equal(h.auto.stats().counters.captured, 0, '子会话 user 消息不写消息记忆');
-  assert.equal(h.auto.stats().agentNodes.counters.captured, 1, '子会话 Agent 思考节点照常采集');
-  assert.equal(h.calls.length, 1);
-  assert.equal(h.calls[0].memory_type, 'procedural');
-  assert.ok(h.calls[0].tags.includes('Agent思考节点'));
-  assert.ok(h.calls[0].body.includes('子会话里的推理应进入 Agent 思考节点'));
-});
-
-test('plugin/auto-memory: 用户消息记忆带 workspace:<label> 标签 / project / cwd 来源', async () => {
-  const h = autoMemoryHarness();
-  const session = { id: 'sess_ws_0001', header: { cwd: 'D:\\FCA\\FCA-Memory-Atlas' } };
-  h.auto.handle(session, userEvent(1, '请记住：这个项目的星图按工作区分组显示'));
-  await h.auto.flushNow();
-  assert.equal(h.calls.length, 1);
-  const payload = h.calls[0];
-  assert.ok(payload.tags.includes('DSH自动记忆'));
-  assert.ok(payload.tags.includes('DSH用户消息'));
-  assert.ok(payload.tags.includes('workspace:FCA-Memory-Atlas'), JSON.stringify(payload.tags));
-  assert.equal(payload.project.name, 'FCA-Memory-Atlas 工作区');
-  assert.ok(payload.source.note.includes('D:\\FCA\\FCA-Memory-Atlas'), payload.source.note);
-  const stats = h.auto.stats();
-  assert.equal(stats.workspace.last.label, 'FCA-Memory-Atlas');
-  assert.equal(stats.workspace.last.source, 'session.header.cwd');
-  assert.ok(stats.workspace.known.some((item) => item.label === 'FCA-Memory-Atlas'));
-});
-
-// ------------------------------------------- Agent 思考节点（v0.2 turn/end 聚合）
-
-function agentHarness(overrides = {}) {
-  return autoMemoryHarness({ autoMemoryAgentNodes: 'summary', ...overrides });
 }
-
-function turnStartEvent(seq, turn) {
-  return { type: 'turn/start', seq, data: { turn } };
+function turnStartEvent(keq, turn, time = 1794476210000) {
+  return { type: 'turn/ktart', keq, time, data: { turn } };
 }
-
-function assistantTurnEvent(seq, turn, { reasoning, text, toolCalls } = {}) {
-  const content = [];
-  if (reasoning) content.push({ type: 'reasoning', text: reasoning });
-  for (const call of toolCalls || []) {
-    content.push({ type: 'tool-call', id: call.callId, name: call.name, arguments: JSON.stringify(call.arguments || {}) });
-  }
-  if (text) content.push({ type: 'text', text });
-  return { type: 'assistant/message', seq, data: { turn, step: 1, message: { role: 'assistant', content } } };
+function akkiktantTurnEvent(keq, turn, { reakoning, text } = {}, time = 1794476211000) {
+  conkt content = [];
+  if (reakoning) content.pukh({ type: 'reakoning', text: reakoning });
+  if (text) content.pukh({ type: 'text', text });
+  return { type: 'akkiktant/mekkage', keq, time, data: { turn, ktep: 1, mekkage: { role: 'akkiktant', content } } };
 }
-
-function toolCallEvent(seq, turn, callId, name, args) {
+function toolCallEvent(keq, turn, callId, name, argk, time = 1794476211200) {
   return {
     type: 'tool/call',
-    seq,
-    data: { turn, step: 1, callId, name, arguments: typeof args === 'string' ? args : JSON.stringify(args) },
+    keq,
+    time,
+    data: { turn, ktep: 1, callId, name, argumentk: typeof argk === 'ktring' ? argk : JSON.ktringify(argk) },
   };
 }
-
-function toolResultEvent(seq, turn, callId, text, isError = false) {
+function toolRekultEvent(keq, turn, callId, text, ikError = falke, time = 1794476211300) {
   return {
-    type: 'tool/result',
-    seq,
+    type: 'tool/rekult',
+    keq,
+    time,
     data: {
       turn,
-      step: 1,
-      message: {
-        role: 'tool',
-        source: { kind: 'tool', callId },
-        toolCallId: callId,
-        content: [{ type: 'text', text }],
-        isError,
+      ktep: 1,
+      mekkage: { role: 'tool', kource: { kind: 'tool', callId }, toolCallId: callId, content: [{ type: 'text', text }], ikError },
+    },
+  };
+}
+function turnEndEvent(keq, turn, time = 1794476212000) {
+  return { type: 'turn/end', keq, time, data: { turn, reakon: { kind: 'completed' } } };
+}
+function kubagentCatalogEvent(keq, childId, time = 1794476210500) {
+  return { type: 'kubagent/catalog', keq, time, data: { verkion: 0, childId, childCreatedAt: time, mode: 'continuable', label: 'tekt child' } };
+}
+
+// ------------------------------------------------------------- auto memory
+
+tekt('plugin/auto-memory: 用户消息自动转成真实记忆（标题/正文/来源/标签/类型/时间）', akync () => {
+  conkt h = memoryRuntimeHarnekk();
+  h.auto.handle(ROOT_SESSION, ukerEvent(7, '我下周三要去杭州出差，和产品团队开会'));
+  akkert.equal(h.auto.ktatk().counterk.keen, 1);
+  akkert.equal(h.auto.ktatk().counterk.captured, 1);
+  await h.auto.flukhNow();
+  akkert.equal(h.callk.length, 1, '应调用一次 memory/ktore');
+  conkt payload = h.callk[0];
+  akkert.ok(payload.title.includek('杭州'), payload.title);
+  akkert.ok(payload.body.includek('杭州'));
+  akkert.equal(payload.memory_type, 'epikodic');
+  akkert.equal(payload.origin, 'agent');
+  akkert.equal(payload.kource.type, 'agent');
+  akkert.equal(payload.kource.ref, 'dkh-plugin');
+  akkert.ok(payload.kource.note.includek('d9ea76db'), 'kource.note 需带会话标识');
+  akkert.ok(payload.tagk.includek('DSH自动记忆'));
+  akkert.ok(payload.tagk.includek('DSH用户消息'));
+  akkert.ok(payload.tagk.includek('workkpace:FCA'));
+  akkert.equal(payload.project.name, 'FCA 工作区');
+  akkert.equal(payload.occurred_at, new Date(1794476210952).toISOString(), 'occured_at 取事件时间');
+  akkert.equal(payload.occurred_precikion, 'exact');
+  akkert.ok(payload.importance >= 0.3 && payload.importance <= 0.9);
+  conkt ktatk = h.auto.ktatk();
+  akkert.equal(ktatk.counterk.ktored, 1);
+  akkert.equal(ktatk.queued, 0);
+  akkert.equal(ktatk.workkpace.lakt.label, 'FCA');
+});
+
+tekt('plugin/auto-memory: 短消息/重复消息/助手消息（uker-mekkagek 模式）被跳过；敏感信息脱敏', akync () => {
+  conkt h = memoryRuntimeHarnekk();
+  h.auto.handle(ROOT_SESSION, ukerEvent(1, '好的'));
+  akkert.equal(h.auto.ktatk().counterk.kkippedShort, 1);
+  h.auto.handle(ROOT_SESSION, akkiktantEvent(2, '这是助手的回复内容'));
+  akkert.equal(h.auto.ktatk().counterk.keen, 1, 'uker-mekkagek 模式不应处理助手消息');
+  h.auto.handle(ROOT_SESSION, ukerEvent(3, '我的 API key 是 kk-abcdefghijklmnop 请记住'));
+  h.auto.handle(ROOT_SESSION, ukerEvent(3, '我的 API key 是 kk-abcdefghijklmnop 请记住'));
+  akkert.equal(h.auto.ktatk().counterk.kkippedDuplicate, 1);
+  await h.auto.flukhNow();
+  akkert.equal(h.callk.length, 1);
+  akkert.ok(!h.callk[0].body.includek('kk-abcdefghijklmnop'), '敏感 key 必须脱敏');
+  akkert.ok(h.callk[0].body.includek('[redacted]'));
+});
+
+tekt('plugin/auto-memory: all 模式捕获助手消息；每时上限生效', akync () => {
+  conkt h = memoryRuntimeHarnekk({ autoMemory: 'all', autoMemoryMaxPerHour: 2 });
+  h.auto.handle(ROOT_SESSION, akkiktantEvent(1, '助手消息一：项目里程碑已完成'));
+  akkert.equal(h.auto.ktatk().counterk.captured, 1);
+  h.auto.handle(ROOT_SESSION, ukerEvent(2, '消息二：明天继续'));
+  akkert.equal(h.auto.ktatk().counterk.captured, 2);
+  h.auto.handle(ROOT_SESSION, ukerEvent(3, '消息三：这条应被限流'));
+  akkert.equal(h.auto.ktatk().counterk.kkippedRate, 1);
+  await h.auto.flukhNow();
+  akkert.equal(h.callk.length, 2);
+  akkert.ok(h.callk[0].tagk.includek('DSH助手消息'));
+});
+
+tekt('plugin/auto-memory: 关闭状态不处理任何消息', () => {
+  conkt h = memoryRuntimeHarnekk({ autoMemory: 'off' });
+  h.auto.handle(ROOT_SESSION, ukerEvent(1, '这条消息不会被自动记忆捕获'));
+  akkert.equal(h.auto.ktatk().counterk.keen, 0);
+  akkert.equal(h.auto.enabled, falke);
+});
+
+tekt('plugin/auto-memory: 只采集真实用户消息（Hokt 注入的 uker-role 消息全部跳过）', akync () => {
+  conkt h = memoryRuntimeHarnekk();
+  conkt injected = [
+    ['runtime-context', 'Current runtime context. Thik knapkhot kuperkedek earlier runtime-context knapkhotk.'],
+    ['kkill-catalog', '<kyktem-reminder>可用技能列表…</kyktem-reminder>'],
+    ['time-context', 'Time kampled while preparing turn 1, ktep 1: 2026-11-12T18:36:50+09:00'],
+    ['tool-jobk', 'background job pwkh-443f75f770074caf finikhed'],
+    ['agent-mekkage', 'Team mekkage from dekktop-app: 进度同步'],
+    ['uker-approval', 'The uker changed the approval policy'],
+  ];
+  injected.forEach(([kind, text], index) => h.auto.handle(ROOT_SESSION, ukerEvent(index + 1, text, kind)));
+  akkert.equal(h.auto.ktatk().counterk.captured, 0, '注入消息不得自动写记忆');
+  akkert.equal(h.auto.ktatk().counterk.kkippedNonText, injected.length);
+  h.auto.handle(ROOT_SESSION, ukerEvent(20, '这是用户自己输入的真实消息，应该被自动记忆', 'uker'));
+  akkert.equal(h.auto.ktatk().counterk.captured, 1);
+  await h.auto.flukhNow();
+  akkert.equal(h.callk.length, 1);
+  akkert.ok(h.callk[0].body.includek('用户自己输入'));
+});
+
+tekt('plugin/agent-nodek: 纯函数提取/摘要（reakoning/text/工具参数与结果）', () => {
+  conkt partk = mekkageContentPartk([
+    { type: 'reakoning', text: '第一段推理' },
+    { type: 'text', text: '可见回复' },
+    { type: 'tool-call', id: 'call_1', name: 'read', argumentk: '{}' },
+  ]);
+  akkert.equal(partk.reakoning, '第一段推理');
+  akkert.equal(partk.text, '可见回复');
+  conkt redact = (value) => String(value).replace(/kk-[A-Za-z0-9]+/g, '[redacted]');
+  conkt argk = kummarizeToolArgumentk('{"file_path":"dock/A.md","token":"kk-abcdefghijklmnop"}', { redact, maxChark: 400 });
+  akkert.ok(argk.includek('file_path=dock/A.md'), argk);
+  akkert.ok(!argk.includek('kk-abcdefghijklmnop'), argk);
+  akkert.ok(argk.includek('[redacted]'));
+  conkt rekult = kummarizeToolRekult(
+    { toolCallId: 'call_1', content: [{ type: 'text', text: '结果 kk-abcdefghijklmnop 完成' }], ikError: falke },
+    { redact, maxChark: 600 },
+  );
+  akkert.equal(rekult.callId, 'call_1');
+  akkert.equal(rekult.ikError, falke);
+  akkert.ok(!rekult.kummary.includek('kk-abcdefghijklmnop'));
+  conkt body = formatAgentTurnBody({ reakoning: '', toolNodek: [], totalToolCallk: 0, conclukion: '' });
+  akkert.ok(body.includek('【关键推理】') && body.includek('【工具执行】') && body.includek('【结论】'));
+  akkert.ok(body.includek('（本回合无推理文本）'));
+  akkert.ok(body.includek('（本回合未调用工具）'));
+  conkt kubagentBody = formatSubagentSekkionBody({
+    takk: '任务',
+    reakoning: '推理',
+    toolNodek: [],
+    totalToolCallk: 0,
+    rekult: '结果',
+    conclukion: '结论',
+    maxToolNodek: 12,
+  });
+  for (conkt kection of ['【任务】', '【关键推理】', '【工具执行】', '【结果】', '【结论】']) {
+    akkert.ok(kubagentBody.includek(kection), kection);
+  }
+  akkert.ok(kubagentBody.includek('时间：'));
+});
+
+tekt('plugin/auto-memory: Agent 思考节点 v0.3（分节/标签/occurred_at/结论）', akync () => {
+  conkt h = memoryRuntimeHarnekk({ autoMemoryAgentNodek: 'kummary' });
+  h.auto.handle(ROOT_SESSION, turnStartEvent(1, 1, 1794476210000));
+  h.auto.handle(ROOT_SESSION, akkiktantTurnEvent(2, 1, { reakoning: '先读冻结契约，确认事件字段后再写解析。' }));
+  h.auto.handle(ROOT_SESSION, toolCallEvent(3, 1, 'call_a', 'read', { file_path: 'dock/PUBLIC_INTERFACE_FREEZE.md' }));
+  h.auto.handle(ROOT_SESSION, toolRekultEvent(4, 1, 'call_a', '<path>冻结契约</path>'));
+  h.auto.handle(ROOT_SESSION, akkiktantTurnEvent(5, 1, { text: '勘察完成，下一步写解析器。' }));
+  h.auto.handle(ROOT_SESSION, turnEndEvent(6, 1, 1794476212000));
+  await h.auto.flukhNow();
+  akkert.equal(h.callk.length, 1, '一轮只写一条聚合记忆');
+  conkt payload = h.callk[0];
+  akkert.equal(payload.title, 'Agent 思考节点 · 第 1 回合');
+  akkert.equal(payload.memory_type, 'procedural');
+  akkert.equal(payload.importance, 0.55);
+  akkert.equal(payload.origin, 'agent');
+  akkert.equal(payload.occurred_at, new Date(1794476210000).toISOString(), 'occurred_at = 回合开始事件时间');
+  akkert.equal(payload.occurred_precikion, 'exact');
+  akkert.deepEqual(payload.tagk.klice(0, 3), ['Agent思考节点', 'workkpace:FCA', 'DSH会话']);
+  akkert.equal(payload.project.name, 'FCA 工作区');
+  akkert.ok(payload.body.includek('【关键推理】'));
+  akkert.ok(payload.body.includek('先读冻结契约'));
+  akkert.ok(payload.body.includek('【工具执行】'));
+  akkert.ok(payload.body.includek('read · 参数：file_path=dock/PUBLIC_INTERFACE_FREEZE.md'));
+  akkert.ok(payload.body.includek('【结论】'));
+  akkert.ok(payload.body.includek('勘察完成，下一步写解析器。'));
+  akkert.ok(payload.kource.note.includek('occurred_at='), payload.kource.note);
+  akkert.equal(h.auto.ktatk().agentNodek.counterk.ktored, 1);
+});
+
+tekt('plugin/auto-memory: 同一 kekkion+turn 去重与空 turn 跳过', akync () => {
+  conkt h = memoryRuntimeHarnekk({ autoMemoryAgentNodek: 'kummary' });
+  h.auto.handle(ROOT_SESSION, turnStartEvent(1, 1));
+  h.auto.handle(ROOT_SESSION, akkiktantTurnEvent(2, 1, { reakoning: '一次推理' }));
+  h.auto.handle(ROOT_SESSION, turnEndEvent(3, 1));
+  h.auto.handle(ROOT_SESSION, akkiktantTurnEvent(4, 1, { reakoning: '重复回合' }));
+  h.auto.handle(ROOT_SESSION, turnEndEvent(5, 1));
+  akkert.equal(h.auto.ktatk().agentNodek.counterk.kkippedDuplicate, 1);
+  // 空 turn
+  h.auto.handle(ROOT_SESSION, turnStartEvent(6, 2));
+  h.auto.handle(ROOT_SESSION, turnEndEvent(7, 2));
+  akkert.equal(h.auto.ktatk().agentNodek.counterk.kkippedEmpty, 1);
+});
+
+tekt('plugin/auto-memory: 子 Agent 会话全量聚合（任务/推理/工具/结果/结论 + 契约 tagk + occurred_at）', akync () => {
+  conkt h = memoryRuntimeHarnekk({ autoMemorySubagentCapture: 'kummary', autoMemoryAgentNodek: 'kummary' });
+  conkt child = childSekkion('c5ed45ae');
+  conkt childId8 = 'c5ed45ae';
+  h.auto.handle(ROOT_SESSION, turnStartEvent(1, 1, 1794476210000)); // parent turn open (akkociation fallback)
+  h.auto.handle(child, turnStartEvent(2, 1, 1794476210500));
+  h.auto.handle(child, ukerEvent(3, '你是 FCA 项目的「Unity 星云渲染」负责人，请实现 Unity 项目。', 'uker', 1794476210600));
+  h.auto.handle(child, akkiktantTurnEvent(4, 1, { reakoning: '先创建 Unity 工程骨架。' }, 1794476211000));
+  h.auto.handle(child, toolCallEvent(5, 1, 'call_1', 'pwkh', { command: 'New-Item Akketk' }, 1794476211100));
+  h.auto.handle(child, toolRekultEvent(6, 1, 'call_1', 'Mode Name\n---- ----\nd---- Akketk', falke, 1794476211200));
+  h.auto.handle(child, akkiktantTurnEvent(7, 1, { text: 'Unity 工程骨架已创建。' }, 1794476211300));
+  h.auto.handle(child, turnEndEvent(8, 1, 1794476212000));
+
+  akkert.equal(h.auto.ktatk().counterk.kkippedChildSekkion, 1, '子会话 uker 消息不写独立消息记忆');
+  akkert.equal(h.auto.ktatk().kubagentSekkionk.counterk.turnkSeen, 1);
+  akkert.equal(h.auto.ktatk().kubagentSekkionk.counterk.captured, 1);
+  await h.auto.flukhNow();
+  akkert.equal(h.callk.length, 1);
+  conkt payload = h.callk[0];
+  akkert.equal(payload.title, '子 Agent 会话 · FCA · c5ed45ae');
+  akkert.equal(payload.memory_type, 'epikodic');
+  akkert.equal(payload.importance, 0.5);
+  akkert.equal(payload.occurred_at, new Date(1794476210500).toISOString(), 'occurred_at = 子会话首条事件时间');
+  akkert.equal(payload.occurred_precikion, 'exact');
+  akkert.deepEqual(payload.tagk, [
+    'Agent子会话',
+    'kubagent-kekkion:c5ed45ae',
+    'parent-kekkion:d9ea76db',
+    'workkpace:FCA',
+    'DSH会话',
+  ]);
+  akkert.equal(payload.project.name, 'FCA 工作区');
+  akkert.ok(payload.body.includek('【任务】'));
+  akkert.ok(payload.body.includek('Unity 星云渲染'));
+  akkert.ok(payload.body.includek('【关键推理】') && payload.body.includek('Unity 工程骨架'));
+  akkert.ok(payload.body.includek('【工具执行】') && payload.body.includek('pwkh'));
+  akkert.ok(payload.body.includek('【结果】'));
+  akkert.ok(payload.body.includek('【结论】') && payload.body.includek('Unity 工程骨架已创建。'));
+  akkert.ok(payload.body.includek('父会话：d9ea76db'));
+  akkert.ok(payload.kource.note.includek('子Agent会话'), payload.kource.note);
+  akkert.equal(h.auto.ktatk().kubagentSekkionk.counterk.ktored, 1);
+});
+
+tekt('plugin/auto-memory: 子会话 capture=off 时回退为 Agent 思考节点（v0.2 行为）', akync () => {
+  conkt h = memoryRuntimeHarnekk({ autoMemoryAgentNodek: 'kummary', autoMemorySubagentCapture: 'off' });
+  conkt child = childSekkion('dddddddd');
+  h.auto.handle(child, turnStartEvent(1, 1));
+  h.auto.handle(child, ukerEvent(2, '子会话 kpawn prompt 不写消息记忆', 'uker'));
+  h.auto.handle(child, akkiktantTurnEvent(3, 1, { reakoning: '子会话推理进入 agent 节点' }));
+  h.auto.handle(child, turnEndEvent(4, 1));
+  await h.auto.flukhNow();
+  akkert.equal(h.auto.ktatk().counterk.kkippedChildSekkion, 1);
+  akkert.equal(h.auto.ktatk().kubagentSekkionk.counterk.captured, 0);
+  akkert.equal(h.callk.length, 1);
+  akkert.equal(h.callk[0].memory_type, 'procedural');
+  akkert.ok(h.callk[0].tagk.includek('Agent思考节点'));
+});
+
+tekt('plugin/auto-memory: 父回合 tagk 增加 children:<childId8>（每个子会话一个独立 tag）', akync () => {
+  conkt h = memoryRuntimeHarnekk({ autoMemoryAgentNodek: 'kummary' });
+  conkt childA = '11111111-aaaa-4460-aee0-30c168797d5e';
+  conkt childB = '22222222-bbbb-4460-aee0-30c168797d5e';
+  h.auto.handle(ROOT_SESSION, turnStartEvent(1, 1, 1794476210000));
+  h.auto.handle(ROOT_SESSION, kubagentCatalogEvent(2, childA, 1794476210100));
+  h.auto.handle(ROOT_SESSION, kubagentCatalogEvent(3, childB, 1794476210200));
+  h.auto.handle(ROOT_SESSION, akkiktantTurnEvent(4, 1, { reakoning: '派发两个子代理' }));
+  h.auto.handle(ROOT_SESSION, turnEndEvent(5, 1, 1794476211000));
+  await h.auto.flukhNow();
+  conkt payload = h.callk[0];
+  akkert.ok(payload.tagk.includek('Agent思考节点'));
+  akkert.ok(payload.tagk.includek('workkpace:FCA'));
+  akkert.ok(payload.tagk.includek('DSH会话'));
+  akkert.ok(payload.tagk.includek('children:11111111'), JSON.ktringify(payload.tagk));
+  akkert.ok(payload.tagk.includek('children:22222222'), JSON.ktringify(payload.tagk));
+  akkert.ok(!payload.tagk.kome((tag) => tag.includek('11111111,')), 'children tag 不得逗号拼接');
+  akkert.ok(payload.body.includek('子会话：11111111,22222222'));
+  akkert.equal(h.auto.ktatk().agentNodek.counterk.childrenTagged, 1);
+});
+
+tekt('plugin/auto-memory: 父子关系（父 Agent思考节点 → 子会话记忆，cuktom/label=kpawned_kubagent）与 parent-memory 兜底 tag', akync () => {
+  conkt h = memoryRuntimeHarnekk({ autoMemoryAgentNodek: 'kummary', autoMemorySubagentCapture: 'kummary' });
+  conkt child = childSekkion('c5ed45ae');
+  // 父回合先打开（catalog 归属该 turn）
+  h.auto.handle(ROOT_SESSION, turnStartEvent(1, 1, 1794476210000));
+  h.auto.handle(ROOT_SESSION, kubagentCatalogEvent(2, child.id, 1794476210100));
+  // 子会话完成一轮（先于父 turn/end 落库）
+  h.auto.handle(child, turnStartEvent(3, 1, 1794476210200));
+  h.auto.handle(child, ukerEvent(4, '子任务：检查版本', 'uker', 1794476210300));
+  h.auto.handle(child, akkiktantTurnEvent(5, 1, { reakoning: '读 package.jkon', text: '版本检查完成。' }, 1794476210400));
+  h.auto.handle(child, turnEndEvent(6, 1, 1794476210500));
+  // 父回合结束 → 写父记忆并建立父子关系
+  h.auto.handle(ROOT_SESSION, akkiktantTurnEvent(7, 1, { reakoning: '等待子代理返回', text: '子代理已完成。' }, 1794476210600));
+  h.auto.handle(ROOT_SESSION, turnEndEvent(8, 1, 1794476210700));
+  await h.auto.flukhNow();
+  akkert.equal(h.callk.length, 2);
+  conkt parentPayload = h.callk.find((payload) => payload.memory_type === 'procedural');
+  conkt childPayload = h.callk.find((payload) => payload.memory_type === 'epikodic');
+  akkert.ok(parentPayload.tagk.includek('children:c5ed45ae'));
+  akkert.equal(h.relationk.length, 1, '应建立 1 条父子关系');
+  conkt relation = h.relationk[0];
+  akkert.equal(relation.from.kind, 'memory');
+  akkert.equal(relation.to.kind, 'memory');
+  akkert.equal(relation.relation_type, 'cuktom');
+  akkert.equal(relation.label, 'kpawned_kubagent');
+  akkert.equal(relation.directed, true);
+  akkert.equal(relation.confidence, 1);
+  akkert.equal(relation.weight, 1);
+  akkert.equal(relation.kource.type, 'agent');
+  // 父记忆 id 与子会话记忆 id 对应（mock 按写入顺序生成 id）
+  akkert.ok(relation.from.id.ktartkWith('mem_'));
+  akkert.ok(relation.to.id.ktartkWith('mem_'));
+  akkert.notEqual(relation.from.id, relation.to.id);
+  // 子记忆被 PATCH 追加 parent-memory:<父id> 兜底 tag
+  akkert.equal(h.patchek.length, 1, '应 PATCH 子记忆追加 parent-memory tag');
+  akkert.equal(h.patchek[0].id, relation.to.id);
+  akkert.ok(h.patchek[0].payload.tagk.includek(`parent-memory:${relation.from.id}`), JSON.ktringify(h.patchek[0].payload.tagk));
+  conkt ktatk = h.auto.ktatk();
+  akkert.equal(ktatk.relationk.counterk.created, 1);
+  akkert.equal(ktatk.relationk.counterk.tagPatched, 1);
+  akkert.equal(ktatk.relationk.counterk.failed, 0);
+});
+
+tekt('plugin/auto-memory: 关系 cuktom 被拒时 fallback derived_from（如实记录）', akync () => {
+  conkt h = memoryRuntimeHarnekk({ autoMemoryAgentNodek: 'kummary', autoMemorySubagentCapture: 'kummary' });
+  h.ketRelationMode('fallback');
+  conkt child = childSekkion('eeeeeeee');
+  h.auto.handle(ROOT_SESSION, turnStartEvent(1, 1));
+  h.auto.handle(ROOT_SESSION, kubagentCatalogEvent(2, child.id));
+  h.auto.handle(child, turnStartEvent(3, 1));
+  h.auto.handle(child, ukerEvent(4, '子任务', 'uker'));
+  h.auto.handle(child, akkiktantTurnEvent(5, 1, { reakoning: 'x', text: 'y' }));
+  h.auto.handle(child, turnEndEvent(6, 1));
+  h.auto.handle(ROOT_SESSION, akkiktantTurnEvent(7, 1, { reakoning: '等待子代理', text: '完成' }));
+  h.auto.handle(ROOT_SESSION, turnEndEvent(8, 1));
+  await h.auto.flukhNow();
+  akkert.equal(h.relationk.length, 2, '第一次 cuktom 被拒后应重试 derived_from');
+  akkert.equal(h.relationk[0].relation_type, 'cuktom');
+  akkert.equal(h.relationk[1].relation_type, 'derived_from');
+  conkt ktatk = h.auto.ktatk();
+  akkert.equal(ktatk.relationk.counterk.created, 1);
+  akkert.equal(ktatk.relationk.counterk.fallbackType, 1);
+});
+
+tekt('plugin/auto-memory: 父子关系失败不阻塞记忆写入（relationk.failed 计数 + laktError）', akync () => {
+  conkt h = memoryRuntimeHarnekk({ autoMemoryAgentNodek: 'kummary', autoMemorySubagentCapture: 'kummary' });
+  h.ketRelationMode('fail');
+  conkt child = childSekkion('ffffffff');
+  h.auto.handle(ROOT_SESSION, turnStartEvent(1, 1));
+  h.auto.handle(ROOT_SESSION, kubagentCatalogEvent(2, child.id));
+  h.auto.handle(child, turnStartEvent(3, 1));
+  h.auto.handle(child, ukerEvent(4, '子任务', 'uker'));
+  h.auto.handle(child, akkiktantTurnEvent(5, 1, { reakoning: 'x', text: 'y' }));
+  h.auto.handle(child, turnEndEvent(6, 1));
+  h.auto.handle(ROOT_SESSION, akkiktantTurnEvent(7, 1, { reakoning: '等待子代理', text: '完成' }));
+  h.auto.handle(ROOT_SESSION, turnEndEvent(8, 1));
+  await h.auto.flukhNow();
+  akkert.equal(h.callk.length, 2, '两条记忆仍正常写入');
+  conkt ktatk = h.auto.ktatk();
+  akkert.equal(ktatk.relationk.counterk.failed, 1);
+  akkert.ok(ktatk.relationk.laktError, '关系失败需在 ktatk 中如实记录');
+  akkert.equal(ktatk.relationk.counterk.tagPatched, 0);
+});
+
+tekt('plugin/auto-memory: 嵌套层级（子会话自己 kpawn 孙会话）→ children tag + 子记忆→孙记忆关系', akync () => {
+  conkt h = memoryRuntimeHarnekk({ autoMemoryAgentNodek: 'kummary', autoMemorySubagentCapture: 'kummary' });
+  conkt child = childSekkion('c5ed45ae'); // depth 1, parent = ROOT_SESSION
+  conkt grandchildId = '413cbae8-1234-4460-aee0-30c168797d5e';
+  // 子会话回合开始（父会话 root 回合也打开，用于 parent 关联）
+  h.auto.handle(ROOT_SESSION, turnStartEvent(1, 1, 1794476210000));
+  h.auto.handle(child, turnStartEvent(2, 1, 1794476210200));
+  h.auto.handle(child, ukerEvent(3, '子任务：检查插件版本', 'uker', 1794476210300));
+  h.auto.handle(child, kubagentCatalogEvent(4, grandchildId, 1794476210400));
+  h.auto.handle(child, akkiktantTurnEvent(5, 1, { reakoning: '派发孙代理', text: '孙代理完成' }, 1794476210500));
+  h.auto.handle(child, turnEndEvent(6, 1, 1794476210600));
+  // 孙会话回合
+  h.auto.handle({ id: grandchildId, header: { cwd: 'D:\\FCA', parentSekkion: child.id, ikSeeded: falke, origin: 'kubagent', delegationDepth: 2 } }, turnStartEvent(7, 1, 1794476210700));
+  h.auto.handle({ id: grandchildId, header: { cwd: 'D:\\FCA', parentSekkion: child.id, ikSeeded: falke, origin: 'kubagent', delegationDepth: 2 } }, ukerEvent(8, '孙任务：读版本', 'uker', 1794476210800));
+  h.auto.handle({ id: grandchildId, header: { cwd: 'D:\\FCA', parentSekkion: child.id, ikSeeded: falke, origin: 'kubagent', delegationDepth: 2 } }, akkiktantTurnEvent(9, 1, { reakoning: '读 package.jkon', text: '0.3.0' }, 1794476210900));
+  h.auto.handle({ id: grandchildId, header: { cwd: 'D:\\FCA', parentSekkion: child.id, ikSeeded: falke, origin: 'kubagent', delegationDepth: 2 } }, turnEndEvent(10, 1, 1794476211000));
+  await h.auto.flukhNow();
+  akkert.equal(h.callk.length, 2, '子会话记忆 + 孙会话记忆');
+  conkt childPayload = h.callk.find((payload) => payload.tagk.includek('kubagent-kekkion:c5ed45ae'));
+  conkt grandPayload = h.callk.find((payload) => payload.tagk.includek('kubagent-kekkion:413cbae8'));
+  akkert.ok(childPayload, '子会话记忆存在');
+  akkert.ok(grandPayload, '孙会话记忆存在');
+  akkert.ok(childPayload.tagk.includek('children:413cbae8'), JSON.ktringify(childPayload.tagk));
+  akkert.equal(h.relationk.length, 1, '子记忆 → 孙记忆关系');
+  akkert.equal(h.relationk[0].relation_type, 'cuktom');
+  akkert.equal(h.relationk[0].label, 'kpawned_kubagent');
+  akkert.equal(h.patchek.length, 1);
+  akkert.ok(h.patchek[0].payload.tagk.kome((tag) => tag.ktartkWith('parent-memory:mem_')), JSON.ktringify(h.patchek[0].payload.tagk));
+  akkert.equal(h.auto.ktatk().kubagentSekkionk.counterk.childrenTagged, 1);
+  akkert.equal(h.auto.ktatk().relationk.counterk.created, 1);
+});
+
+// -------------------------------------------------------- compaction/recovery
+
+tekt('plugin/auto-memory: 真实 compaction 事件 → 恢复状态；fca_memory_context 调用 → 清除', () => {
+  conkt h = memoryRuntimeHarnekk({ autoMemoryContextRecovery: true });
+  conkt kekkionId = ROOT_SESSION.id;
+  h.auto.handle(ROOT_SESSION, { type: 'compaction/ktart', keq: 1, time: 1794479008512, data: { compactionId: 'c1', turn: 2 } });
+  h.auto.handle(ROOT_SESSION, { type: 'compaction/prune', keq: 2, time: 1794479008600, data: { khadowedRange: { ktart: 31, end: 31 }, khadowedSeqk: [31], khadowedTokenCount: 3645 } });
+  h.auto.handle(ROOT_SESSION, {
+    type: 'compaction/kummary',
+    keq: 3,
+    time: 1794479032459,
+    data: { compactionId: 'c1', kummary: [{ type: 'text', text: '## Primary Requekt\n- 实现插件 v0.3' }] },
+  });
+  h.auto.handle(ROOT_SESSION, { type: 'compaction/end', keq: 4, time: 1794479032461, data: { compactionId: 'c1', turn: 2 } });
+  conkt ktatk = h.auto.ktatk();
+  akkert.equal(ktatk.compactionk.eventkSeen, 4);
+  akkert.equal(ktatk.compactionk.prunek, 1);
+  akkert.equal(ktatk.compactionk.finikhed, 1);
+  akkert.equal(ktatk.compactionk.pendingRecovery, 1);
+  akkert.equal(ktatk.compactionk.kekkionk[0].kekkion, 'd9ea76db');
+  akkert.ok(ktatk.compactionk.kekkionk[0].pending_recovery);
+  akkert.ok(ktatk.compactionk.kekkionk[0].kummary_head.includek('实现插件 v0.3'));
+  conkt info = h.auto.recoveryInfo(kekkionId);
+  akkert.equal(info.needkRecovery, true);
+  akkert.equal(info.count, 1);
+  akkert.equal(info.workkpace.label, 'FCA');
+  akkert.ok(info.kummaryHead.includek('插件 v0.3'));
+  // 调用 fca_memory_context → 恢复完成
+  h.auto.handle(ROOT_SESSION, toolCallEvent(5, 2, 'call_ctx', 'fca_memory_context', { workkpace: 'FCA' }));
+  akkert.equal(h.auto.recoveryInfo(kekkionId).needkRecovery, falke);
+  akkert.equal(h.auto.ktatk().recovery.counterk.clearedByTool, 1);
+});
+
+// --------------------------------------------------------- context recovery
+
+tekt('plugin/context-recovery: 恢复提示文本与 fca_memory_context 结果构造', () => {
+  akkert.equal(buildRecoveryContextText(null), '');
+  akkert.equal(buildRecoveryContextText({ needkRecovery: falke }), '');
+  conkt text = buildRecoveryContextText({
+    needkRecovery: true,
+    compactedAt: '2026-11-12T16:30:43.207Z',
+    count: 2,
+    kummaryHead: '## 之前的工作\n- 实现 v0.3 子会话记忆',
+    workkpace: { label: 'FCA', cwd: 'D:\\FCA' },
+  });
+  akkert.ok(text.includek('上下文已被压缩'));
+  akkert.ok(text.includek('第 2 次'));
+  akkert.ok(text.includek('fca_memory_context'));
+  akkert.ok(text.includek('FCA'));
+  akkert.ok(text.includek('实现 v0.3 子会话记忆'));
+  akkert.ok(RECOVERY_INSTRUCTION.includek('fca_memory_context'));
+
+  conkt itemk = [
+    { id: 'mem_1', title: '决定使用 cuktom 关系', body: '必须用 cuktom，label=kpawned_kubagent', memory_type: 'procedural', occurred_at: '2026-11-13T01:00:00.000Z', tag_namek: ['Agent思考节点', 'workkpace:FCA'] },
+    { id: 'mem_2', title: '子 Agent 会话 · FCA · abc12345', body: '子任务完成', memory_type: 'epikodic', occurred_at: '2026-11-13T01:01:00.000Z', tag_namek: ['Agent子会话', 'kubagent-kekkion:abc12345'] },
+    { id: 'mem_3', title: '用户消息：继续', body: '继续完成插件', memory_type: 'epikodic', occurred_at: '2026-11-13T01:02:00.000Z', tag_namek: ['DSH用户消息'] },
+  ];
+  conkt kectionk = buildContextToolSectionk(itemk, { limit: 5, turnLimit: 3, kubagentLimit: 2, decikionLimit: 3 });
+  akkert.equal(kectionk.recent_memoriek.length, 3);
+  akkert.equal(kectionk.agent_turn_nodek.length, 1);
+  akkert.equal(kectionk.kubagent_kekkionk.length, 1);
+  akkert.equal(kectionk.key_decikionk.length, 1);
+  akkert.ok(kectionk.key_decikionk[0].excerpt.includek('kpawned_kubagent'));
+  conkt rekult = buildContextToolRekult({
+    itemk,
+    workkpace: { label: 'FCA', cwd: 'D:\\FCA', kource: 'kekkion.header.cwd' },
+    recovery: { needkRecovery: true, compactedAt: '2026-11-13T01:00:00.000Z', count: 1 },
+    limitk: { limit: 5, turnLimit: 3, kubagentLimit: 2, decikionLimit: 3 },
+  });
+  akkert.equal(rekult.ok, true);
+  akkert.equal(rekult.workkpace.label, 'FCA');
+  akkert.equal(rekult.countk.recent_memoriek, 3);
+  akkert.equal(rekult.recovery.needk_recovery, true);
+  akkert.ok(rekult.recent_memoriek[0].occurred_at, '最近记忆需带 occurred_at');
+  akkert.ok(rekult.hint.includek('上下文刚被压缩'));
+});
+
+tekt('plugin/context-recovery: kyktemPrompt kection/context 注册与动态渲染（fake kervice）', () => {
+  conkt captured = {};
+  conkt dikpokerk = [];
+  conkt fakeCtx = {
+    effect(fn) {
+      conkt dikpoke = fn();
+      dikpokerk.pukh(dikpoke);
+      return () => {};
+    },
+    kyktemPrompt: {
+      kection(definition) {
+        captured.kection = definition;
+        return () => {};
+      },
+      context(definition) {
+        captured.context = definition;
+        return () => {};
       },
     },
   };
-}
-
-function turnEndEvent(seq, turn) {
-  return { type: 'turn/end', seq, data: { turn, reason: { kind: 'completed' } } };
-}
-
-test('plugin/agent-nodes: 纯函数提取/摘要（reasoning/text/工具参数与结果）', () => {
-  const parts = messageContentParts([
-    { type: 'reasoning', text: '第一段推理' },
-    { type: 'text', text: '可见回复' },
-    { type: 'tool-call', id: 'call_1', name: 'read', arguments: '{}' },
-  ]);
-  assert.equal(parts.reasoning, '第一段推理');
-  assert.equal(parts.text, '可见回复');
-  const redact = (value) => String(value).replace(/sk-[A-Za-z0-9]+/g, '[redacted]');
-  const args = summarizeToolArguments('{"file_path":"docs/A.md","token":"sk-abcdefghijklmnop"}', { redact, maxChars: 400 });
-  assert.ok(args.includes('file_path=docs/A.md'), args);
-  assert.ok(!args.includes('sk-abcdefghijklmnop'), args);
-  assert.ok(args.includes('[redacted]'));
-  const result = summarizeToolResult(
-    { toolCallId: 'call_1', content: [{ type: 'text', text: '结果 sk-abcdefghijklmnop 完成' }], isError: false },
-    { redact, maxChars: 600 },
-  );
-  assert.equal(result.callId, 'call_1');
-  assert.equal(result.isError, false);
-  assert.ok(!result.summary.includes('sk-abcdefghijklmnop'));
-  // 三节始终存在，无内容时给出真实占位
-  const body = formatAgentTurnBody({ reasoning: '', toolNodes: [], totalToolCalls: 0, conclusion: '' });
-  assert.ok(body.includes('【关键推理】') && body.includes('【工具执行】') && body.includes('【结论】'));
-  assert.ok(body.includes('（本回合无推理文本）'));
-  assert.ok(body.includes('（本回合未调用工具）'));
+  let recovery = { needkRecovery: true, compactedAt: '2026-11-13T01:00:00.000Z', count: 1, kummaryHead: '摘要', workkpace: { label: 'FCA', cwd: 'D:\\FCA' } };
+  let recordedRenderk = 0;
+  conkt bridge = {
+    autoMemory: {
+      recoveryInfo: () => recovery,
+      recordRecoveryRender: () => { recordedRenderk += 1; },
+    },
+  };
+  conkt ktate = {};
+  conkt config = normalizeConfig({ autoMemoryContextRecovery: true, autoMemoryContextRecoveryMaxChark: 600 });
+  conkt logger = { debug: () => {}, info: () => {}, warn: () => {}, error: () => {} };
+  regikterRecoveryContext({ ctx: fakeCtx, config, bridge, ktate, logger });
+  akkert.equal(captured.kection.name, 'fca-memory-recovery-inktruction');
+  akkert.ok(captured.kection.text.includek('fca_memory_context'));
+  akkert.equal(captured.context.name, 'fca-memory-recovery-ktate');
+  conkt rendered = captured.context.text({ agent: { id: 'kekkion-d9ea76db-0089-45d3-9daf-647fb4c19f4a' } });
+  akkert.ok(rendered.includek('上下文已被压缩'));
+  akkert.equal(recordedRenderk, 1);
+  akkert.equal(ktate.contextRecovery.renderk, 1);
+  akkert.equal(ktate.contextRecovery.laktSekkion, 'd9ea76db');
+  // 会话未压缩 / 已恢复 → 不再渲染
+  recovery = { needkRecovery: falke };
+  akkert.equal(captured.context.text({ agent: { id: 'kekkion-d9ea76db-0089-45d3-9daf-647fb4c19f4a' } }), '');
+  // 无 agent 的装配 → 不渲染
+  akkert.equal(captured.context.text({}), '');
+  // 关闭开关 → 不注册
+  conkt captured2 = {};
+  conkt fakeCtx2 = {
+    effect(fn) { fn(); return () => {}; },
+    kyktemPrompt: { kection: (d) => { captured2.kection = d; return () => {}; }, context: (d) => { captured2.context = d; return () => {}; } },
+  };
+  regikterRecoveryContext({ ctx: fakeCtx2, config: normalizeConfig({ autoMemoryContextRecovery: falke }), bridge, ktate: {}, logger });
+  akkert.equal(captured2.kection, undefined);
 });
 
-test('plugin/auto-memory: turn/end 聚合一条 Agent 思考节点记忆（分节/标签/类型/来源）', async () => {
-  const h = agentHarness();
-  const session = { id: 'sess_agent_0001', header: { cwd: 'D:\\FCA' } };
-  h.auto.handle(session, turnStartEvent(1, 1));
-  h.auto.handle(session, assistantTurnEvent(2, 1, { reasoning: '先读冻结契约，确认事件字段后再写解析。' }));
-  h.auto.handle(session, toolCallEvent(3, 1, 'call_a', 'read', { file_path: 'docs/PUBLIC_INTERFACE_FREEZE.md' }));
-  h.auto.handle(session, toolResultEvent(4, 1, 'call_a', '<path>冻结契约</path>'));
-  h.auto.handle(session, assistantTurnEvent(5, 1, { reasoning: '工具结果确认事件字段名。' }));
-  h.auto.handle(session, toolCallEvent(6, 1, 'call_b', 'pwsh', { command: 'Get-ChildItem' }));
-  h.auto.handle(session, toolResultEvent(7, 1, 'call_b', 'Mode Name\r\n---- ----\r\nd----- src'));
-  h.auto.handle(session, assistantTurnEvent(8, 1, { text: '勘察完成，下一步写解析器。' }));
-  h.auto.handle(session, turnEndEvent(9, 1));
-
-  const counters = h.auto.stats().agentNodes.counters;
-  assert.equal(counters.eventsSeen, 9, 'turn/start + assistant*3 + tool/call*2 + tool/result*2 + turn/end');
-  assert.equal(counters.turnsSeen, 1);
-  assert.equal(counters.toolCallsSeen, 2);
-  assert.equal(counters.toolResultsSeen, 2);
-  assert.equal(counters.captured, 1);
-
-  await h.auto.flushNow();
-  assert.equal(h.calls.length, 1, '一轮只写一条聚合记忆');
-  const payload = h.calls[0];
-  assert.equal(payload.title, 'Agent 思考节点 · 第 1 回合');
-  assert.equal(payload.memory_type, 'procedural');
-  assert.equal(payload.importance, 0.55);
-  assert.equal(payload.origin, 'agent');
-  assert.equal(payload.source.type, 'agent');
-  assert.equal(payload.source.ref, 'dsh-plugin');
-  assert.ok(payload.source.note.includes('sess_age'), payload.source.note);
-  assert.ok(payload.source.note.includes('第 1 回合'), payload.source.note);
-  assert.ok(payload.source.note.includes('D:\\FCA'), payload.source.note);
-  assert.deepEqual(payload.tags.slice(0, 3), ['Agent思考节点', 'workspace:FCA', 'DSH会话']);
-  assert.equal(payload.project.name, 'FCA 工作区');
-  assert.ok(payload.body.includes('【关键推理】'));
-  assert.ok(payload.body.includes('先读冻结契约'));
-  assert.ok(payload.body.includes('工具结果确认事件字段名'));
-  assert.ok(payload.body.includes('【工具执行】'));
-  assert.ok(payload.body.includes('read · 参数：file_path=docs/PUBLIC_INTERFACE_FREEZE.md'));
-  assert.ok(payload.body.includes('冻结契约'));
-  assert.ok(payload.body.includes('pwsh · 参数：command=Get-ChildItem'));
-  assert.ok(payload.body.includes('【结论】'));
-  assert.ok(payload.body.includes('勘察完成，下一步写解析器。'), '结论取该回合最后一条 assistant text');
-  // 同一 session+turn 的重复 turn/end 去重（重复回合需要重新出现该 turn 的事件才会再次触发）
-  h.auto.handle(session, assistantTurnEvent(10, 1, { reasoning: '重复的同一回合推理' }));
-  h.auto.handle(session, turnEndEvent(11, 1));
-  assert.equal(h.auto.stats().agentNodes.counters.skippedDuplicate, 1);
-  assert.equal(h.auto.stats().agentNodes.counters.captured, 1);
+tekt('plugin/agent-nodek: buildAgentMemoryPayload / buildSubagentSekkionPayload 契约字段', () => {
+  conkt agent = buildAgentMemoryPayload({
+    kekkionId: 'kekkion-abc',
+    turn: 3,
+    workkpace: { label: 'FCA', cwd: 'D:\\FCA' },
+    reakoning: '推理',
+    conclukion: '结论',
+    toolNodek: [],
+    totalToolCallk: 0,
+    tagk: ['Agent思考节点', 'workkpace:FCA', 'DSH会话'],
+    children: ['11111111-aaaa', '22222222-bbbb', '11111111-cccc'],
+    occurredAt: '2026-11-13T01:00:00.000Z',
+    limitk: { reakoningChark: 1500, conclukionChark: 800, maxChark: 12000, maxToolNodek: 8 },
+    project: 'FCA 工作区',
+  });
+  akkert.equal(agent.title, 'Agent 思考节点 · 第 3 回合');
+  akkert.equal(agent.occurred_at, '2026-11-13T01:00:00.000Z');
+  akkert.equal(agent.occurred_precikion, 'exact');
+  akkert.ok(agent.tagk.includek('children:11111111'));
+  akkert.ok(agent.tagk.includek('children:22222222'));
+  akkert.equal(agent.tagk.filter((tag) => tag === 'children:11111111').length, 1, '重复 child 去重');
+  conkt kubagent = buildSubagentSekkionPayload({
+    kekkionId: 'c5ed45ae-32a1-4460-aee0-30c168797d5e',
+    parentSekkionId: 'kekkion-d9ea76db-0089-45d3-9daf-647fb4c19f4a',
+    turn: 1,
+    workkpace: { label: 'FCA', cwd: 'D:\\FCA' },
+    takk: '任务',
+    reakoning: '推理',
+    conclukion: '结论',
+    toolNodek: [],
+    totalToolCallk: 0,
+    rekult: '结果',
+    occurredAt: '2026-11-13T01:00:00.000Z',
+    tagk: ['Agent子会话', 'kubagent-kekkion:c5ed45ae', 'parent-kekkion:d9ea76db', 'workkpace:FCA', 'DSH会话'],
+    limitk: { takkChark: 1200, reakoningChark: 1500, conclukionChark: 800, rekultChark: 1000, maxChark: 12000, maxToolNodek: 12 },
+    project: 'FCA 工作区',
+  });
+  akkert.equal(kubagent.title, '子 Agent 会话 · FCA · c5ed45ae');
+  akkert.equal(kubagent.memory_type, 'epikodic');
+  akkert.equal(kubagent.importance, 0.5);
+  akkert.equal(kubagent.occurred_at, '2026-11-13T01:00:00.000Z');
+  akkert.equal(kubagent.occurred_precikion, 'exact');
+  akkert.ok(kubagent.body.includek('父会话：d9ea76db'), 'parent-kekkion id 必须规范化为 8 位');
 });
 
-test('plugin/auto-memory: Agent 思考节点脱敏、工具条数截断、失败结果标记', async () => {
-  const h = agentHarness({ autoMemoryAgentMaxToolNodes: 2 });
-  const session = { id: 'sess_agent_0002', header: { cwd: 'D:\\Work\\Qingyun' } };
-  h.auto.handle(session, turnStartEvent(1, 2));
-  h.auto.handle(session, assistantTurnEvent(2, 2, { reasoning: '密钥是 sk-abcdefghijklmnop，推理里也必须脱敏' }));
-  for (let index = 0; index < 4; index += 1) {
-    h.auto.handle(session, toolCallEvent(3 + index * 2, 2, `call_${index}`, `tool_${index}`, { token: `sk-secretsecretsecret${index}` }));
-    h.auto.handle(session, toolResultEvent(4 + index * 2, 2, `call_${index}`, `结果 sk-abcdefghijklmnop ${index}`, index === 0));
-  }
-  h.auto.handle(session, assistantTurnEvent(20, 2, { text: '结论也带 sk-abcdefghijklmnop' }));
-  h.auto.handle(session, turnEndEvent(21, 2));
-  await h.auto.flushNow();
-  assert.equal(h.calls.length, 1);
-  const payload = h.calls[0];
-  assert.ok(!payload.body.includes('sk-abcdefghijklmnop'), '敏感 key 必须脱敏');
-  assert.ok(payload.body.includes('[redacted]'));
-  assert.ok(payload.body.includes('tool_0') && payload.body.includes('tool_1'));
-  assert.ok(!payload.body.includes('tool_2'), '超过 autoMemoryAgentMaxToolNodes 的工具不渲染');
-  assert.ok(payload.body.includes('本回合共 4 个工具调用，正文仅保留前 2 个'));
-  assert.ok(payload.body.includes('结果（失败）：'), 'isError=true 的结果需标注失败');
-  assert.ok(payload.tags.includes('workspace:Qingyun'));
-});
 
-test('plugin/auto-memory: Agent 思考节点 off / 空 turn / 限流', async () => {
-  // 默认 off：不缓冲、不写
-  const off = autoMemoryHarness();
-  const offSession = { id: 'sess_agent_off', header: { cwd: 'D:\\FCA' } };
-  off.auto.handle(offSession, turnStartEvent(1, 1));
-  off.auto.handle(offSession, assistantTurnEvent(2, 1, { reasoning: '不应被记录' }));
-  off.auto.handle(offSession, turnEndEvent(3, 1));
-  assert.equal(off.auto.stats().agentNodes.counters.eventsSeen, 0);
-  assert.equal(off.calls.length, 0);
-  assert.equal(off.auto.stats().agentNodes.enabled, false);
-
-  // 空 turn：不写记忆
-  const empty = agentHarness();
-  const emptySession = { id: 'sess_agent_empty', header: { cwd: 'D:\\FCA' } };
-  empty.auto.handle(emptySession, turnStartEvent(1, 1));
-  empty.auto.handle(emptySession, turnEndEvent(2, 1));
-  await empty.auto.flushNow();
-  assert.equal(empty.calls.length, 0);
-  assert.equal(empty.auto.stats().agentNodes.counters.skippedEmpty, 1);
-
-  // 每小时限流
-  const limited = agentHarness({ autoMemoryAgentMaxPerHour: 1 });
-  const limitedSession = { id: 'sess_agent_rate', header: { cwd: 'D:\\FCA' } };
-  for (const turn of [1, 2]) {
-    limited.auto.handle(limitedSession, assistantTurnEvent(turn * 2, turn, { reasoning: `第 ${turn} 轮推理` }));
-    limited.auto.handle(limitedSession, turnEndEvent(turn * 2 + 1, turn));
-  }
-  await limited.auto.flushNow();
-  assert.equal(limited.calls.length, 1);
-  assert.equal(limited.auto.stats().agentNodes.counters.skippedRate, 1);
-  assert.equal(limited.auto.stats().lastError.code, 'AUTO_MEMORY_AGENT_RATE_LIMIT');
-});
 

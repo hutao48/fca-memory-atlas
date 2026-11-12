@@ -78,6 +78,10 @@ const criticalPayloadFiles = [
   'resources/app/main/unity-embed.js',
   'resources/app/renderer/index.html',
   'resources/app/renderer/app.js',
+  'resources/app/renderer/lib/hierarchy.js',
+  'resources/app/renderer/lib/unity-selection.js',
+  'resources/app/renderer/lib/detail-panel.js',
+  'resources/app/renderer/views/relations.js',
   'runtime/bin/fca-runtime.js',
   'runtime/src/runtime.js',
   'runtime/src/services.js',
@@ -108,6 +112,16 @@ function isFile(p) {
   } catch {
     return false;
   }
+}
+function fileText(p) {
+  try {
+    return readFileSync(p, 'utf8');
+  } catch {
+    return '';
+  }
+}
+function hasText(p, needle) {
+  return fileText(p).includes(needle);
 }
 function mustExist(p, label) {
   if (isFile(p)) return true;
@@ -157,6 +171,10 @@ mustExist(join(PROJECT_ROOT, 'desktop', 'main', 'unity-viewer.js'), 'desktop/mai
 mustExist(join(PROJECT_ROOT, 'desktop', 'main', 'unity-embed.js'), 'desktop/main/unity-embed.js');
 mustExist(join(PROJECT_ROOT, 'desktop', 'renderer', 'index.html'), 'desktop/renderer/index.html');
 mustExist(join(PROJECT_ROOT, 'desktop', 'renderer', 'app.js'), 'desktop/renderer/app.js');
+mustExist(join(PROJECT_ROOT, 'desktop', 'renderer', 'lib', 'hierarchy.js'), 'desktop/renderer/lib/hierarchy.js');
+mustExist(join(PROJECT_ROOT, 'desktop', 'renderer', 'lib', 'unity-selection.js'), 'desktop/renderer/lib/unity-selection.js');
+mustExist(join(PROJECT_ROOT, 'desktop', 'renderer', 'lib', 'detail-panel.js'), 'desktop/renderer/lib/detail-panel.js');
+mustExist(join(PROJECT_ROOT, 'desktop', 'renderer', 'views', 'relations.js'), 'desktop/renderer/views/relations.js');
 if (!SKIP_RUNTIME) {
   mustExist(join(PROJECT_ROOT, 'runtime', 'bin', 'fca-runtime.js'), 'runtime/bin/fca-runtime.js');
   mustExist(join(PROJECT_ROOT, 'runtime', 'src', 'runtime.js'), 'runtime/src/runtime.js');
@@ -173,7 +191,7 @@ const NODE_CANDIDATES = [
   { path: process.env.FCA_NODE, source: 'env:FCA_NODE' },
   { path: join(PROJECT_ROOT, 'vendor', 'node', 'node.exe'), source: 'vendor/node/node.exe' },
   {
-    path: join(process.env.LOCALAPPDATA || '', 'Programs', 'DSH NEXT', 'resources', 'runtime', 'x64', 'primary-runtime', 'dependencies', 'node', 'bin', 'node.exe'),
+    path: 'C:\\Users\\<user>\\AppData\\Local\\Programs\\DSH NEXT\\resources\\runtime\\x64\\primary-runtime\\dependencies\\node\\bin\\node.exe',
     source: 'dsh-next-runtime',
   },
   { path: 'C:\\Program Files\\nodejs\\node.exe', source: 'system-nodejs' },
@@ -520,10 +538,24 @@ buildInfo.checks = {
   desktop_unity_viewer_module_present: isFile(join(appDir, 'main', 'unity-viewer.js')),
   desktop_unity_embed_module_present: isFile(join(appDir, 'main', 'unity-embed.js')),
   unity_renderer_present: isFile(join(payload, 'unity', 'FCANebulaWebGL', 'index.html')),
+  unity_webgl_wasm_present:
+    isFile(join(payload, 'unity', 'FCANebulaWebGL', 'index.html')) &&
+    readdirSync(join(payload, 'unity', 'FCANebulaWebGL', 'Build')).some((f) => f.endsWith('.wasm')),
   unity_standalone_present: isFile(join(payload, 'unity', 'FCANebula', 'FCANebula.exe')),
   dsh_plugin_package_present: pluginIncluded && isFile(join(payload, 'dsh_plugin', pluginTgzName)),
   runtime_llm_present: isFile(join(payload, 'runtime', 'src', 'api', 'routes', 'llm.js')),
   runtime_seed_present: isFile(join(payload, 'runtime', 'src', 'seed', 'demo.js')),
+  // v0.3.0 desktop UI 修复/新功能随包标记（文件内容断言，防止打包旧 renderer）
+  desktop_renderer_hierarchy_module_present: isFile(join(appDir, 'renderer', 'lib', 'hierarchy.js')),
+  desktop_renderer_unity_selection_module_present: isFile(join(appDir, 'renderer', 'lib', 'unity-selection.js')),
+  desktop_renderer_detail_panel_present: isFile(join(appDir, 'renderer', 'lib', 'detail-panel.js')),
+  desktop_renderer_relations_view_present: isFile(join(appDir, 'renderer', 'views', 'relations.js')),
+  ui_toggle_buttons_present:
+    hasText(join(appDir, 'renderer', 'index.html'), 'btn-toggle-left') &&
+    hasText(join(appDir, 'renderer', 'index.html'), 'btn-toggle-right'),
+  ui_relation_detail_marker: hasText(join(appDir, 'renderer', 'views', 'relations.js'), 'relation-detail'),
+  ui_hierarchy_detail_marker: hasText(join(appDir, 'renderer', 'lib', 'detail-panel.js'), 'detail__hierarchy'),
+  ui_unity_select_bridge_marker: hasText(join(appDir, 'renderer', 'lib', 'unity-selection.js'), 'fca-unity-select'),
 };
 writeFileSync(join(payload, 'BUILD_INFO.json'), `${JSON.stringify(buildInfo, null, 2)}\n`);
 

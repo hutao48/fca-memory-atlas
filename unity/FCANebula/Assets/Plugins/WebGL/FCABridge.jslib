@@ -37,6 +37,21 @@ mergeInto(LibraryManager.library, {
     } catch (e) { /* older browsers */ }
   },
 
+  // Node selection change (Unity -> page). Electron syncs its right-hand detail panel with
+  // this; payload: {id,kind,title,memoryType,arm,importance,occurredAt,selected}.
+  FCABridge_NotifySelect: function (jsonPtr) {
+    var json = UTF8ToString(jsonPtr);
+    var data = {};
+    try { data = JSON.parse(json); } catch (e) { data = { raw: json }; }
+    window.__FCA_NEBULA_SELECTED__ = data;
+    if (window.parent && window.parent !== window) {
+      window.parent.postMessage({ type: 'fca-unity-select', payload: data }, '*');
+    }
+    try {
+      window.dispatchEvent(new CustomEvent('fca-unity-select', { detail: data }));
+    } catch (e) { /* older browsers */ }
+  },
+
   // Same-origin screenshot helper used by the acceptance tooling: serialises the
   // Unity canvas to a data URL that the page can POST to its local server.
   FCABridge_GetCanvasDataUrl: function (mimePtr) {

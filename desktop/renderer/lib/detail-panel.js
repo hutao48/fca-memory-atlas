@@ -7,6 +7,11 @@
  */
 
 import { icon } from '../ui/icons.js';
+import {
+  buildHierarchySummary,
+  shortId,
+  toChildMemoryItem,
+} from './hierarchy.js';
 
 export function createDetailPanel(options) {
   const { api, store, ui, format, events, bridge, toast, log, actions } = options;
@@ -21,6 +26,17 @@ export function createDetailPanel(options) {
   let currentTab = 'detail';
   let versionsState = { status: 'idle', items: [], error: null };
   let customCleanup = null;
+  // 子 Agent 会话层级 UI 状态（插件 v0.3 tags/relations 驱动）
+  let hierarchyState = { memoryId: null, expanded: false, loading: false, items: null, error: null, summary: null };
+
+  function resetHierarchyState() {
+    hierarchyState = { memoryId: null, expanded: false, loading: false, items: null, error: null, summary: null };
+  }
+
+  function hierarchyNodes() {
+    const graph = store.getState().graph.data;
+    return graph && Array.isArray(graph.nodes) ? graph.nodes : [];
+  }
 
   function setTitle(text) {
     if (titleEl) titleEl.textContent = text || '详情';
@@ -41,6 +57,7 @@ export function createDetailPanel(options) {
     currentPayload = null;
     requestToken += 1;
     resetVersions();
+    resetHierarchyState();
     if (customCleanup) {
       try {
         customCleanup();
@@ -79,6 +96,7 @@ export function createDetailPanel(options) {
     requestToken += 1;
     const token = requestToken;
     resetVersions();
+    resetHierarchyState();
     if (empty) empty.hidden = true;
     showLoading();
     setTitle('载入中…');
@@ -320,7 +338,148 @@ export function createDetailPanel(options) {
         ]),
       ]),
     );
+
+    // 子 Agent 会话层级（插件 v0.3 写入 tags `children:*`/`parent:*` 或层级 relations；无层级数据时自动隐藏）
+    const hierarchyHost = ui.el('div', { class: 'detail__hierarchy-host', 'data-testid': 'detail-hierarchy-host' });
+    body.appendChild(hierarchyHost);
+    renderHierarchySection(hierarchyHost, memory, currentPayload);
     return body;
+  }
+
+  /* -------------------------------- 子 Agent 会话层级 -------------------------------- */
+
+  function renderHierarchySection(host, memory, payload) {
+    if (!host || !memory) return;
+    const summary = buildHierarchySummary(memory, payload && payload.relations, hierarchyNodes());
+    if (!summary.hasHierarchy) {
+      host.hidden = true;
+      host.innerHTML = '';
+      return;
+    }
+    host.hidden = false;
+    if (hierarchyState.memoryId !== memory.id) {
+      hierarchyState = { memoryId: memory.id, expanded: false, loading: false, items: null, error: null, summary };
+    } else {
+      hierarchyState.summary = summary;
+    }
+    host.innerHTML = '';
+    const section = ui.el('div', { class: 'detail__section detail__hierarchy', 'data-testid': 'detail-hierarchy' });
+    section.appendChild(
+      ui.el('div', { class: 'detail__section-title' }, [
+        icon('brain', { size: 13 }),
+        ui.el('span', { text: `子 Agent 记忆（${summary.childCount}）` }),
+        summary.parentCount ? ui.el('span', { class: 'fca-muted', text: `父记忆 ${summary.parentCount}` }) : null,
+      ]),
+    );
+
+    if (summary.parents.length) {
+      const parentList = ui.el('div', { class: 'detail__hierarchy-parents' });
+      for (const entry of summary.parents) parentList.appendChild(renderHierarchyEntry(entry, '父记忆'));
+      section.appendChild(parentList);
+    }
+
+    if (summary.childCount > 0) {
+      const toggle = ui.el('button', { type: 'button', class: 'detail__hierarchy-toggle', 'data-testid': 'detail-hierarchy-toggle', 'aria-expanded': hierarchyState.expanded ? 'true' : 'false' }, [
+        ui.el('span', { class: 'detail__hierarchy-caret', text: hierarchyState.expanded ? '▾' : '▸' }),
+        ui.el('span', { text: hierarchyState.expanded ? `收起子 Agent 记忆（${summary.childCount}）` : `展开子 Agent 记忆（${summary.childCount}）` }),
+      ]);
+      toggle.addEventListener('click', () => {
+        hierarchyState.expanded = !hierarchyState.expanded;
+        if (hierarchyState.expanded && !hierarchyState.items && !hierarchyState.loading) loadHierarchyChildren(host, memory, payload);
+        else renderHierarchySection(host, memory, payload);
+      });
+      section.appendChild(toggle);
+      const listHost = ui.el('div', { class: 'detail__hierarchy-list', hidden: !hierarchyState.expanded, 'data-testid': 'detail-hierarchy-list' });
+      if (hierarchyState.expanded) {
+        if (hierarchyState.loading) listHost.appendChild(ui.el('div', { class: 'detail__loading' }, [ui.spinner({ label: '读取子 Agent 记忆…' })]));
+        else if (hierarchyState.error) listHost.appendChild(ui.el('div', { class: 'detail__error', text: hygieneText(hierarchyState.error) }));
+        else if (Array.isArray(hierarchyState.items) && hierarchyState.items.length) {
+          for (const item of hierarchyState.items) listHost.appendChild(renderHierarchyChild(item));
+        }
+      }
+      section.appendChild(listHost);
+    }
+    host.appendChild(section);
+  }
+
+  /** 对象值安全转文本，避免 [object Object] */
+  function hygieneText(value) {
+    if (value === null || value === undefined) return '';
+    if (typeof value === 'string') return value;
+    if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+    try {
+      return JSON.stringify(value);
+    } catch {
+      return String(value);
+    }
+  }
+
+  function renderHierarchyEntry(entry, label) {
+    const node = entry.node || null;
+    const id = entry.id || (node && node.id) || null;
+    const title = node ? node.label || id : id || entry.ref;
+    const row = ui.el('button', { type: 'button', class: 'detail__hierarchy-parent', title: `${label} ${id || entry.ref}` }, [
+      icon('relation', { size: 13 }),
+      ui.el('span', { class: 'fca-grow fca-truncate', text: title }),
+      ui.el('span', { class: 'fca-muted', text: label }),
+    ]);
+    row.addEventListener('click', () => {
+      if (entry.resolved && id) {
+        if (node && node.kind === 'entity') showEntity(id);
+        else actions.openMemory(id);
+      } else {
+        toast(`未在图中找到 ${entry.ref}（可能尚未同步）`, { type: 'warn' });
+      }
+    });
+    return row;
+  }
+
+  async function loadHierarchyChildren(host, memory, payload) {
+    const summary = hierarchyState.summary || buildHierarchySummary(memory, payload && payload.relations, hierarchyNodes());
+    hierarchyState.loading = true;
+    hierarchyState.error = null;
+    renderHierarchySection(host, memory, payload);
+    const token = requestToken;
+    const resolvedIds = summary.children.map((entry) => entry.id).filter(Boolean).slice(0, 30);
+    const items = [];
+    await Promise.all(
+      resolvedIds.map(async (id) => {
+        const entry = summary.children.find((item) => item.id === id) || {};
+        try {
+          const result = await api.getMemory(id);
+          items.push(toChildMemoryItem(result && result.memory ? result.memory : null, entry.node));
+        } catch {
+          items.push(toChildMemoryItem(null, entry.node) || { id, title: id, type: null, time: null, bodyPreview: '' });
+        }
+      }),
+    );
+    for (const entry of summary.children) {
+      if (!entry.id) items.push({ id: null, ref: entry.ref, title: `未索引子会话 ${entry.ref}`, type: null, time: null, bodyPreview: '' });
+    }
+    items.sort((a, b) => String(b.time || '').localeCompare(String(a.time || '')));
+    if (token !== requestToken) return;
+    hierarchyState.items = items;
+    hierarchyState.loading = false;
+    renderHierarchySection(host, memory, payload);
+  }
+
+  function renderHierarchyChild(item) {
+    const testid = item.id ? `detail-hierarchy-child-${item.id}` : `detail-hierarchy-unresolved-${item.ref}`;
+    const row = ui.el('button', { type: 'button', class: 'detail__hierarchy-child', 'data-testid': testid, title: item.id || item.ref || '' }, [
+      icon('sparkles', { size: 13 }),
+      ui.el('div', { class: 'detail__hierarchy-child-main' }, [
+        ui.el('div', { class: 'detail__hierarchy-child-title fca-truncate', text: item.title || item.id || item.ref || '' }),
+        ui.el('div', {
+          class: 'detail__hierarchy-child-meta fca-muted',
+          text: [item.type ? format.memoryTypeLabel(item.type) : null, item.time ? format.datetime(item.time) : null].filter(Boolean).join(' · ') || shortId(item.id || item.ref || ''),
+        }),
+        item.bodyPreview ? ui.el('div', { class: 'detail__hierarchy-child-preview', text: item.bodyPreview }) : null,
+      ]),
+      item.id ? icon('forward', { size: 12 }) : null,
+    ]);
+    if (item.id) row.addEventListener('click', () => actions.openMemory(item.id));
+    else row.addEventListener('click', () => toast('该子会话记忆尚未索引到图中', { type: 'info', duration: 3000 }));
+    return row;
   }
 
   function otherSide(relation) {
@@ -523,29 +682,100 @@ export function createDetailPanel(options) {
   }
 
   // ------------------------------------------------------------------ 自定义内容（ctx.detail.show）
+  /** 把 relations.js / search.js 等传入的 action 描述对象渲染成按钮（修复 [object Object]） */
+  function normalizeCustomActions(customActions) {
+    const nodes = [];
+    (Array.isArray(customActions) ? customActions : []).forEach((action, index) => {
+      if (!action) return;
+      if (action instanceof Node) {
+        nodes.push(action);
+        return;
+      }
+      if (typeof action !== 'object') return;
+      const label = action.label || action.text || `操作 ${index + 1}`;
+      if (typeof ui.button !== 'function') return;
+      const btn = ui.button({
+        label,
+        icon: action.icon,
+        variant: action.variant || (index === 0 ? 'primary' : 'secondary'),
+        size: 'sm',
+        disabled: Boolean(action.disabled),
+        title: action.title || (action.kbd ? `${label} (${action.kbd})` : label),
+      });
+      btn.dataset.testid = action.testid || `detail-action-${index}`;
+      btn.addEventListener('click', async () => {
+        if (btn.disabled) return;
+        btn.disabled = true;
+        try {
+          const result = action.onClick ? action.onClick(btn) : undefined;
+          if (result && typeof result.then === 'function') await result;
+          if (action.closeOnClick) clear();
+        } catch (error) {
+          const message = error && error.message ? error.message : String(error);
+          if (typeof toast === 'function') toast(`操作失败：${message}`, { type: 'error', duration: 5000 });
+          if (log && typeof log.error === 'function') log.error('detail.action', message);
+        } finally {
+          if (!action.closeOnClick) btn.disabled = false;
+        }
+      });
+      nodes.push(btn);
+    });
+    return nodes;
+  }
+
   function showCustom(payload = {}) {
-    const { title, subtitle, content, actions: customActions } = payload;
+    const { title, subtitle, content, actions: customActions, testid } = payload;
     if (customCleanup) {
-      customCleanup();
+      try {
+        customCleanup();
+      } catch {
+        /* ignore */
+      }
       customCleanup = null;
     }
     currentId = null;
+    currentMemory = null;
+    currentPayload = null;
     requestToken += 1;
+    resetVersions();
     if (empty) empty.hidden = true;
     setTitle(title || '详情');
+    setStatus('ready', { memory: null, relations: [], versionsCount: 0, layout: null, targetId: null, custom: true });
+    if (!scroll) return;
     scroll.innerHTML = '';
+    const actionNodes = normalizeCustomActions(customActions);
     const header = ui.el('div', { class: 'detail__header' }, [
       title ? ui.el('div', { class: 'detail__title', text: title }) : null,
       subtitle ? ui.el('div', { class: 'detail__subtitle', text: subtitle }) : null,
-      customActions && customActions.length ? ui.el('div', { class: 'detail__actions' }, customActions) : null,
+      actionNodes.length ? ui.el('div', { class: 'detail__actions' }, actionNodes) : null,
     ]);
     scroll.appendChild(header);
-    if (content instanceof Node) scroll.appendChild(content);
-    else if (typeof content === 'function') {
-      const rendered = content();
-      if (rendered instanceof Node) scroll.appendChild(rendered);
+
+    // 关键修复：为函数式 content 提供真实 host 容器（relations.js/search.js 的 content 都是 `(host) => …`），
+    // 同时兼容 content 为 DOM Node / 字符串；返回值若未挂到 host 上也自动挂载，避免内容丢失。
+    const host = ui.el('div', { class: 'detail__custom', 'data-testid': testid || 'detail-custom' });
+    if (content instanceof Node) {
+      host.appendChild(content);
+    } else if (typeof content === 'function') {
+      let rendered = null;
+      try {
+        rendered = content(host);
+      } catch (error) {
+        const message = error && error.message ? error.message : String(error);
+        host.appendChild(ui.el('div', { class: 'detail__error', text: `详情渲染失败：${message}` }));
+        if (log && typeof log.error === 'function') log.error('detail.custom', message);
+      }
+      if (rendered instanceof Node) {
+        if (!host.contains(rendered)) host.appendChild(rendered);
+      } else if (typeof rendered === 'function') {
+        customCleanup = rendered;
+      } else if (typeof rendered === 'string' && rendered.trim()) {
+        host.appendChild(ui.el('div', { class: 'detail__text', text: rendered }));
+      }
+    } else if (typeof content === 'string' && content.trim()) {
+      host.appendChild(ui.el('div', { class: 'detail__text', text: content }));
     }
-    setStatus('ready');
+    scroll.appendChild(host);
   }
 
   return {

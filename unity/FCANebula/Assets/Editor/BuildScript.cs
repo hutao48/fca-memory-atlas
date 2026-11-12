@@ -245,7 +245,9 @@ namespace FCANebula.EditorTools
                 info.query_contract =
                     "index.html?runtime-url=<http://127.0.0.1:17860|/relative-base>&token=<bearer>&quality=high&view=0|1|2&poll=3&auto-rotate=0&labels=0";
                 info.bridge_contract =
-                    "Unity -> page: window.__FCA_NEBULA_STATE__, window.__FCA_READY__, window message types fca-unity-ready/fca-unity-state; page -> Unity: FCA_NEBULA.postCommand('view:1'|'quality:high'|'refresh'|'labels:1').";
+                    "Unity -> page: window.__FCA_NEBULA_STATE__, window.__FCA_READY__, window.__FCA_NEBULA_SELECTED__, window message types fca-unity-ready/fca-unity-state/fca-unity-select; " +
+                    "page -> Unity: FCA_NEBULA.postCommand('view:0|1|2'|'quality:high'|'refresh'|'labels:0|1'|'select:<nodeId>'|'select:clear'|'focus:<nodeId>'|'expand:<nodeId>'|'collapse:<nodeId>'), " +
+                    "and cross-origin parent message {type:'fca-unity-command',command} with {type:'fca-unity-command-ack',command,ok}.";
                 info.note =
                     "Runtime JSON is fetched directly from the FCA Runtime over HTTP (CORS enabled). The bearer token is injected into the iframe URL by Electron and is never written to disk/logs.";
                 File.WriteAllText(Path.Combine(outputDirectory, "fca-webgl-build-info.json"), JsonUtility.ToJson(info, true));

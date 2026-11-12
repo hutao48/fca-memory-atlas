@@ -138,6 +138,24 @@
       }
 
       window.addEventListener("fca-unity-state", function (event) { updateStatusFromState(event.detail); });
+      window.addEventListener("fca-unity-select", function (event) {
+        // Electron syncs its detail panel from this; exposed for acceptance tooling too.
+        window.__FCA_NEBULA_SELECTED__ = event.detail || null;
+      });
+      // Parent -> iframe command channel (cross-origin iframe: the Electron page cannot touch
+      // the iframe's window object directly, so it posts messages instead).
+      // Protocol: {type:'fca-unity-command', command:'select:<nodeId>'|'select:clear'|...}
+      window.addEventListener("message", function (e) {
+        if (e.source !== window.parent) return;
+        var d = e.data;
+        var cmd = typeof d === "string" ? d : (d && d.type === "fca-unity-command" ? d.command : null);
+        if (!cmd) return;
+        var ok = false;
+        try { ok = !!(window.FCA_NEBULA && window.FCA_NEBULA.postCommand(cmd)); } catch (err) { ok = false; }
+        try {
+          window.parent.postMessage({ type: "fca-unity-command-ack", command: cmd, ok: !!ok }, "*");
+        } catch (err) { /* ignore */ }
+      });
       window.addEventListener("fca-unity-ready", function (event) {
         var payload = event.detail || {};
         loadingBar.style.display = "none";
@@ -196,6 +214,7 @@
         getState: function () {
           return window.__FCA_NEBULA_STATE__ || { ready: !!window.__FCA_READY__ };
         },
+        getSelected: function () { return window.__FCA_NEBULA_SELECTED__ || null; },
         getInstance: function () { return unityInstance; },
         postCommand: function (command) {
           if (unityInstance) {
@@ -206,6 +225,9 @@
         },
         setView: function (view) { return this.postCommand("view:" + view); },
         setQuality: function (quality) { return this.postCommand("quality:" + quality); },
+        select: function (nodeId) { return this.postCommand("select:" + (nodeId || "clear")); },
+        expand: function (nodeId) { return this.postCommand("expand:" + (nodeId || "first")); },
+        collapse: function (nodeId) { return this.postCommand("collapse:" + (nodeId || "all")); },
         refresh: function () { return this.postCommand("refresh"); }
       };
     </script>

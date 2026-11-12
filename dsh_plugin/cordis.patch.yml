@@ -49,6 +49,29 @@
         autoMemoryAgentToolResultChars: 600
         autoMemoryAgentMaxChars: 12000
         autoMemoryAgentMaxPerHour: 60
+        # Child / subagent session capture (v0.3, 用户要求“跟子agent之间的对话以及
+        # 思考过程也得全部写进去”): every child session turn becomes ONE aggregated
+        # episodic memory (task / reasoning / tools / result / conclusion) with
+        # subagent-session:/parent-session: tags; the parent turn's Agent思考节点
+        # gets children:<childId8> tags and a runtime parent→child relation.
+        # off | summary
+        autoMemorySubagentCapture: summary
+        autoMemorySubagentMaxToolNodes: 12
+        autoMemorySubagentTaskChars: 1200
+        autoMemorySubagentReasoningChars: 1500
+        autoMemorySubagentConclusionChars: 800
+        autoMemorySubagentResultChars: 1000
+        autoMemorySubagentToolArgChars: 400
+        autoMemorySubagentToolResultChars: 600
+        autoMemorySubagentMaxChars: 12000
+        autoMemorySubagentMaxPerHour: 60
+        # Context recovery (v0.3, 用户要求“压缩上下文后必须重读记忆节点”):
+        # injects an always-on recovery instruction + a post-compaction reminder
+        # into the model prompt (systemPrompt section/context) and listens for
+        # real compaction/start|summary|end session events. The reminder clears
+        # once the agent calls fca_memory_context.
+        autoMemoryContextRecovery: true
+        autoMemoryContextRecoveryMaxChars: 900
         # Prompt digest injection is opt-in.
         injectContext: false
         # Extra secrets redaction beyond the built-in patterns.

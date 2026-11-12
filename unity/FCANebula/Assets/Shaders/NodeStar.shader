@@ -71,11 +71,17 @@ Shader "FCA/NodeStar"
                 // nebula colour is close to its own tint (e.g. memories on the cyan FCA arm).
                 col += float3(1.0, 0.97, 0.93) * (core * core * 1.4 + pow(saturate(0.55 - r), 4.0) * 1.2);
 
-                // Selection ring + soft hover ring.
+                // Selection ring + soft hover ring + expandable-parent ring.
                 float selRing = smoothstep(0.055, 0.0, abs(r - 0.74)) * i.extra.x;
                 col += float3(0.80, 0.92, 1.10) * selRing * 1.1;
-                float hoverRing = smoothstep(0.05, 0.0, abs(r - 0.92)) * i.extra.y;
+                float parentFlag = step(1.5, i.extra.y);
+                float hoverFlag = step(0.5, i.extra.y) * step(i.extra.y, 1.5);
+                float hoverRing = smoothstep(0.05, 0.0, abs(r - 0.92)) * hoverFlag;
                 col += float3(0.55, 0.68, 0.90) * hoverRing * 0.40;
+                // Expandable parent memories get a pulsing gold ring (task-14 hierarchy affordance).
+                float parentPulse = 0.65 + 0.35 * sin(_Time.y * 2.2 + i.color.a * 6.2831);
+                float parentRing = smoothstep(0.05, 0.0, abs(r - 0.82)) * parentFlag;
+                col += float3(0.95, 0.84, 0.58) * parentRing * 0.65 * parentPulse;
 
                 return float4(col * _Intensity, 1.0);
             }

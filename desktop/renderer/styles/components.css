@@ -1286,3 +1286,122 @@
   gap: var(--fca-space-2);
   margin-top: var(--fca-space-1);
 }
+
+/* ------------------------------------------------------------------ 详情面板：自定义内容 / 子 Agent 层级 */
+.detail__custom {
+  padding: var(--fca-space-3) var(--fca-space-4) var(--fca-space-5);
+  font-size: var(--fca-text-sm);
+}
+
+.detail__custom > .detail__body,
+.detail__custom > .view-rel__detail,
+.detail__custom > .view-search__detail {
+  padding: 0;
+}
+
+.detail__hierarchy-host[hidden] {
+  display: none;
+}
+
+.detail__hierarchy {
+  border: 1px solid rgba(160, 140, 240, 0.28);
+  border-radius: var(--fca-radius);
+  padding: var(--fca-space-2) var(--fca-space-3);
+  background: rgba(160, 140, 240, 0.05);
+}
+
+.detail__hierarchy .detail__section-title {
+  justify-content: flex-start;
+  gap: 6px;
+  color: var(--fca-violet);
+}
+
+.detail__hierarchy-parents {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-bottom: var(--fca-space-2);
+}
+
+.detail__hierarchy-parent,
+.detail__hierarchy-child {
+  display: flex;
+  align-items: center;
+  gap: var(--fca-space-2);
+  width: 100%;
+  padding: 5px 6px;
+  border: 1px solid transparent;
+  border-radius: var(--fca-radius-sm);
+  background: transparent;
+  color: var(--fca-text-dim);
+  font: inherit;
+  font-size: var(--fca-text-sm);
+  text-align: left;
+  cursor: pointer;
+}
+
+.detail__hierarchy-parent:hover,
+.detail__hierarchy-child:hover {
+  background: rgba(160, 140, 240, 0.08);
+  border-color: rgba(160, 140, 240, 0.28);
+}
+
+.detail__hierarchy-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 4px 2px;
+  border: 0;
+  background: transparent;
+  color: var(--fca-violet);
+  font: inherit;
+  font-size: var(--fca-text-xs);
+  text-align: left;
+  cursor: pointer;
+}
+
+.detail__hierarchy-caret {
+  width: 12px;
+  color: var(--fca-violet);
+}
+
+.detail__hierarchy-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 4px;
+  max-height: 320px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: #253449 transparent;
+}
+
+.detail__hierarchy-child {
+  align-items: flex-start;
+}
+
+.detail__hierarchy-child-main {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.detail__hierarchy-child-title {
+  color: var(--fca-text);
+  font-size: var(--fca-text-sm);
+}
+
+.detail__hierarchy-child-meta {
+  font-size: var(--fca-text-2xs);
+}
+
+.detail__hierarchy-child-preview {
+  font-size: var(--fca-text-2xs);
+  color: var(--fca-text-faint);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

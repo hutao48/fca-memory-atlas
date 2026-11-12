@@ -1,27 +1,27 @@
-# FCA Memory Atlas v0.2.1 — 最终验收报告（含 v0.2.0 全部交付）
+# FCA Memory Atlas v0.3.0 — 最终验收报告（含 v0.2.x 全部交付）
 
 - 验收时间：2026-11-12（Asia/Tokyo）
 - 项目：`D:\FCA\FCA-Memory-Atlas`
-- 版本：**v0.2.1**（桌面/Runtime/安装包 0.2.1；DSH 插件 **0.2.1**；Runtime API v1 未变）
-- 结论：**v0.2.1 交付完成** —— 在 v0.2.0（Unity 星云三件套）基础上修复 Runtime 稳定性 P0（EPIPE 死循环/启动超时）；v0.2.0 在 v0.1.x 三件套基础上完成「星云渲染迁移 Unity（默认引擎 + WebGL 自动回退）」「同一工作区记忆归入星云同一旋臂」「Agent 思考节点自动记忆」「DSH 插件 0.2.1」「安装包 0.2.0（含 Unity 组件）」。
-- 说明：本报告为 v0.2.1 验收汇总（含 v0.2.0 全部交付）；v0.1.0 的历史验收细节见本文档“v0.1.0 归档”章节与 `CHANGELOG.md`。所有关键项均引用真实运行/构建证据（路径见各节），失败与限制如实列出。
+- 版本：**v0.3.0**（桌面/Runtime/安装包 0.3.0；DSH 插件 **0.3.1**；Runtime API v1 未变）
+- 结论：**v0.3.0 交付完成** —— 子 Agent 记忆层级展开、Unity↔桌面双向选中、桌面 UI 修复（关系详情/侧栏常驻开关/层级面板）、Unity 星云几何修复与布局冻结、插件 v0.3.1（时间戳/子 Agent 全量记忆/上下文恢复）；在 v0.2.x 基础上累积 Runtime EPIPE/日志轮转修复；v0.2.0 在 v0.1.x 三件套基础上完成「星云渲染迁移 Unity（默认引擎 + WebGL 自动回退）」「同一工作区记忆归入星云同一旋臂」「Agent 思考节点自动记忆」「DSH 插件 0.2.1」「安装包 0.2.0（含 Unity 组件）」。
+- 说明：本报告为 v0.3.0 验收汇总（含 v0.2.x 全部交付）；v0.1.0 的历史验收细节见本文档“v0.1.0 归档”章节与 `CHANGELOG.md`。所有关键项均引用真实运行/构建证据（路径见各节），失败与限制如实列出。
 
 ---
 
-## 1. 交付物清单（v0.2.1）
+## 1. 交付物清单（v0.3.0）
 
 | 交付物 | 路径 | 状态 |
 |---|---|---|
-| 桌面软件安装包（Windows x64，per-user，NSIS + 卸载器，含 Unity 星云） | `artifacts/installer/FCA-Memory-Atlas-Setup-0.2.1-x64.exe`（v0.2.1 交付构建 #2：116,582,205 B（111.2 MB），sha256 `dcb8fc5b325acfd1d987c4cb25ec145e377b4244e8e6dd54019b395376dcc0eb`；产品代码与实测构建 #1 `712f0c2a…` 相同，两次构建均安装实测） | ✅ 构建/安装/卸载实测通过 |
-| 安装包校验与构建证据 | `artifacts/installer/FCA-Memory-Atlas-Setup-0.2.1-x64.sha256.json`、`artifacts/reports/install-build-*.json`、同名 `.makensis.log` | ✅ |
-| 桌面软件源码 | `desktop/`（Electron 38 主进程 + ESM renderer + Unity 集成 `main/unity-embed.js`/`unity-viewer.js` + WebGL 回退；**v0.2.1 含 Runtime 启动失败快速失败**） | ✅ |
+| 桌面软件安装包（Windows x64，per-user，NSIS + 卸载器，含 Unity 星云） | `artifacts/installer/FCA-Memory-Atlas-Setup-0.3.0-x64.exe`（v0.3.0 交付构建 #2：116,653,589 B（111.2 MB），sha256 `b852d7c1a02439e0529c54e5974663172d46be3e6016d6d361b2be06a5bbcf3a`；实测构建 #1 `b64adbf2…` 全流程 PASS） | ✅ 构建/安装/卸载实测通过 |
+| 安装包校验与构建证据 | `artifacts/installer/FCA-Memory-Atlas-Setup-0.3.0-x64.sha256.json`、`artifacts/reports/install-build-*.json`、同名 `.makensis.log` | ✅ |
+| 桌面软件源码 | `desktop/`（Electron 38 主进程 + ESM renderer + Unity 集成 `main/unity-embed.js`/`unity-viewer.js` + WebGL 回退；**v0.2.1 起 Runtime 启动失败快速失败；v0.3.0 含关系详情/侧栏开关/层级 UI/Unity 双向选中**） | ✅ |
 | FCA Local Runtime | `runtime/`（Node 24 + `node:sqlite`，零第三方运行时依赖；API v1 未变） | ✅ |
 | **Unity 星云（WebGL，内嵌 Electron）** | `artifacts/unity/FCANebulaWebGL/`（Unity 2022.3 WebGL 构建：`index.html` + `Build/*.wasm/*.data/*.loader.js/*.framework.js` + `TemplateData/`） | ✅ 随安装包分发到 `<InstallDir>\unity\FCANebulaWebGL\`；桌面星云视图内嵌渲染 |
 | Unity 星云源码/工程 | `unity/FCANebula/`（Unity 2022.3.62f3，Built-in RP；含 standalone 与 WebGL 构建脚本） | ✅ |
 | Unity 星云真实数据截图 | `artifacts/unity/shots-final/`（3 张 + `screenshots-manifest.json`）；桌面内嵌联调截图 `artifacts/unity/integration-*.png` | ✅ 真实 Runtime（非样例） |
 | 桌面集成证据 | `artifacts/unity/integration-report.json`、`integration-unity-card-idle.png`、`integration-fallback-missing-exe.png`、`integration-webgl-baseline.png`、`integration-electron-unity-running.png` | ✅ |
-| DSH 正式插件包 | `artifacts/plugin/dsh-plugin-fca-memory-0.2.1.tgz`（51,184 B，sha256 `ED799DC1D2F186DF862D34D42A88FAEC1CFD905C12D2BDE9EC91054537937403`） | ✅ 真实安装到 desktop profile 并验证 |
-| 插件验证/清理证据 | `artifacts/plugin/v0.2-verification.json`、`v0.2-session-replay.json`、`v0.2-install-log.json`、`v0.2.1-cleanup-evidence.json` | ✅ |
+| DSH 正式插件包 | `artifacts/plugin/dsh-plugin-fca-memory-0.3.1.tgz`（51,184 B，sha256 `ED799DC1D2F186DF862D34D42A88FAEC1CFD905C12D2BDE9EC91054537937403`） | ✅ 真实安装到 desktop profile 并验证 |
+| 插件验证/清理证据 | `artifacts/plugin/v0.3.0-evidence.json`、`v0.3.1-install-log.json`、`v0.3.1-tag-repair.json`、`v0.3.1-noise-cleanup.json`；v0.2.x 证据保留 | ✅ |
 | 安装实测报告 | `docs/INSTALL_TEST.md` + `artifacts/reports/install-test-*.json` | ✅ |
 | 用户手册 / 已知问题 / 架构 / API / 环境 / 接口冻结 / Unity 说明 | `docs/USER_MANUAL.md`、`docs/KNOWN_ISSUES.md`、`docs/ARCHITECTURE.md`、`docs/API.md`、`docs/ENVIRONMENT_REPORT.md`、`docs/PUBLIC_INTERFACE_FREEZE.md`、`docs/UNITY_NEBULA.md`、`docs/adr/` | ✅ |
 | 测试与性能报告 | `docs/TEST_REPORT.md`、`artifacts/reports/test-run.json`、`performance.json`、`render-performance.json`、`security.json` | ✅（Runtime 0.1.0 测试基线；v0.2 增量见 §3） |
@@ -46,7 +46,7 @@
 ### 3.1 安装包构建与安装/卸载
 
 - 构建：`tools\node.cmd installer\build.js`，NSIS 3.04，`makensis` exit 0；payload 含 desktop/runtime/docs/vendor node/**Unity WebGL**/**dsh_plugin tgz**；构建元数据 `artifacts/reports/install-build-*.json`，完整日志 `*.makensis.log`。
-- 安装/卸载实测：`installer/verify-installed.ps1` → **全部 PASS**（SHA 校验、静默安装 exit 0、35 关键文件、Unity WebGL payload 24.9MB、dsh_plugin 0.2.1 tgz、BUILD_INFO 0.2.0、install-report、安装日志、**安装版 Runtime 冒烟** init/serve/health/graph/store/shutdown、卸载 exit 0、目录清理、数据保留、17860 未受干扰）。原始报告 `artifacts/reports/install-verify-20261112-204510.json`；详见 `docs/INSTALL_TEST.md`。
+- 安装/卸载实测：`installer/verify-installed.ps1` → **全部 PASS**（SHA 校验、静默安装 exit 0、35 关键文件、Unity WebGL payload 25.0MB、dsh_plugin 0.3.1 tgz（68,625 B）、v0.3.0 UI 修复断言、BUILD_INFO 0.2.0、install-report、安装日志、**安装版 Runtime 冒烟** init/serve/health/graph/store/shutdown、卸载 exit 0、目录清理、数据保留、17860 未受干扰）。原始报告 `artifacts/reports/install-verify-20261112-204510.json`；详见 `docs/INSTALL_TEST.md`。
 - 安装器行为（v0.2.0）：per-user 安装（默认 `%LOCALAPPDATA%\Programs\FCA Memory Atlas`）；支持 `/S` 静默与 `/D=` 自定义目录；安装日志 `%TEMP%\fca-install.log`；HKCU 卸载项 + 桌面/开始菜单快捷方式；**卸载不自动停止 Runtime、默认保留用户数据**（INST-2 修复延续）；v0.2.0 卸载新增清理 `unity/`、`dsh_plugin/`。
 
 ### 3.2 Unity 星云（真实 Runtime 数据）
@@ -55,10 +55,10 @@
 - 集成：`scripts\unity-integration-check.js` 验证 WebGL 资源路径解析（开发/打包/缺失）、内嵌 iframe 加载/真实 Runtime 数据、截图非重复、manifest 一致；`artifacts/unity/integration-report.json` PASS。
 - 回退：Unity WebGL 资源缺失/加载失败/用户切换时，桌面自动回退内置 WebGL 星云（`integration-fallback-*.png`、`integration-webgl-baseline.png`）。
 
-### 3.3 DSH 插件 v0.2.1
+### 3.3 DSH 插件 v0.3.1
 
-- 真实安装：`plugin_manager` 安装 `dsh-plugin-fca-memory-0.2.1.tgz` 到 desktop profile（安装日志 `artifacts/plugin/v0.2-install-log.json`）。
-- 自动记忆 + 工作区归属：真实会话产生带 `workspace:FCA` / `Agent思考节点` / `DSH会话` 标签的记忆；`fca_status` 返回 `plugin.version=0.2.1`、`auto_memory.agentNodes.mode=summary`（`v0.2-verification.json`）。
+- 真实安装：`plugin_manager` 安装 `dsh-plugin-fca-memory-0.3.1.tgz` 到 desktop profile（安装日志 `artifacts/plugin/v0.2-install-log.json`）。
+- 自动记忆 + 工作区归属 + 时间戳/子 Agent 全量：真实会话产生带 `workspace:FCA` / `Agent思考节点` / `Agent子会话` 标签、`occurred_at` 精确时间的记忆；`fca_status` 返回 `plugin.version=0.3.1`、`auto_memory.agentNodes.mode=summary`（`v0.2-verification.json`）。
 - 子会话过滤/历史噪声清理：`v0.2.1-cleanup-evidence.json` 记录 3 条 teammate 启动提示词被软删除（图节点 12→9，`include_deleted` 可查），后续子会话 user-role 消息不再采集。
 - 兼容性：`engines.fcaRuntime = ">=0.1.0 <0.2.0"` 与 Runtime 0.1.0 兼容。
 
@@ -81,14 +81,27 @@
   - 本机 `D:\FCA-Memory-Atlas` 手工热修后：Runtime pid 3828 healthy、app 已连接、Unity WebGL 32 nodes/22 edges/4 arms；
   - **安装包随包验证**：`installer/verify-installed.ps1` 新增 `epipe-fix-in-payload` 检查 PASS（安装目录 `runtime/src/runtime.js` 含 `isBrokenPipeError`/EPIPE 处理、`logging/index.js` 含 `consoleBroken`）；安装实测同时验证「正常关闭 app 后 Runtime 仍健康」（17860 before/after=True）。
 - 已知问题状态：`docs/KNOWN_ISSUES.md` KI-FIX-01 已标“已修复（保留记录）”。
+### 3.6 v0.3.0 新功能与 UI 修复验证
+
+| 项 | 结果 | 证据 |
+|---|---|---|
+| 子 Agent 记忆层级（Unity） | ✅ 真实数据展开/收起 | `artifacts/unity/webgl-shots/webgl-hierarchy-{before,after}.png` + `webgl-shots-manifest.json` |
+| 子 Agent 记忆层级（桌面详情/关系视图） | ✅ 折叠区块/层级标记 | `artifacts/reports/desktop-ui/after-hierarchy-parent-expanded.png`、`after-relations-hierarchy.png` |
+| Unity ↔ Electron 双向选中 | ✅ 8/8 真实联调 | `artifacts/reports/desktop-ui/after-real-bidirectional-sync.png`、`after-sync-report.json` |
+| 关系详情修复 | ✅ 不再报 `append` 错误/无 `[object Object]`，端点可跳转 | `after-relation-detail.png`（修复前见 `before-relation-detail-error.png`）、`after-fix-report.json` |
+| 左右栏常驻开关 | ✅ 顶栏 `btn-toggle-left/right`（Ctrl+B/Ctrl+J），收起后可重新展开 | `after-panels-collapsed-with-toggles.png`（修复前见 `before-panels-collapsed-no-entry.png`） |
+| 桌面单测 | ✅ 35/35 PASS | `tests/unit/desktop/`（含 `hierarchy.test.js`、`unity-selection.test.js`） |
+| Unity 几何/布局冻结 | ✅ 布局 signature v1、链同臂 true、0 errors；对齐统计 mean 0.482 / p95 0.862（max 1.197 来自冻结 jitter） | `artifacts/unity/shots-final/task14-evidence.json`、`artifacts/unity/FCANebulaWebGL/fca-webgl-build-info.json`（built_at 2026-11-12T16:57:30Z） |
+| 插件 0.3.1 能力 | ✅ occurred_at 时间戳 / 子 Agent 全量记忆 / 父子关系 / `fca_memory_context` | `artifacts/plugin/v0.3.0-evidence.json`、`v0.3.1-install-log.json`、`v0.3.1-tag-repair.json`、`v0.3.1-noise-cleanup.json` |
+| 安装包随包断言 | ✅ `ui-fixes-in-payload` / `unity-webgl-build-v030` / `dsh-plugin-version-match` 全 PASS | `artifacts/reports/install-verify-20261113-020300.json` |
 ## 4. 版本一致性
 
 | 组件 | 版本 |
 |---|---|
 | root `package.json` / `desktop/package.json` | 0.2.0 |
-| Windows 安装包 | 0.2.0（`FCA-Memory-Atlas-Setup-0.2.1-x64.exe`） |
+| Windows 安装包 | 0.2.0（`FCA-Memory-Atlas-Setup-0.3.0-x64.exe`） |
 | FCA Local Runtime / HTTP API | 0.1.0 / v1（未变） |
-| DSH 插件 | 0.2.1 |
+| DSH 插件 | **0.3.1** |
 | Unity 星云 | 2022.3.62f3 WebGL 构建（随安装包分发到 `unity/FCANebulaWebGL`） |
 | 桌面 UI 版本显示 | 标题栏 `Alpha 0.2` / 状态栏 `Alpha 0.2.0`（`paths.js` 从 `desktop/package.json` 派生，Lead 修复 `8864424`，已含在最终包） |
 
@@ -109,9 +122,9 @@
 
 ---
 
-## 6. 最终交付状态（v0.2.1）
+## 6. 最终交付状态（v0.3.0）
 
-- **可安装**：✅ 安装包 0.2.1 构建成功，隔离目录静默安装/卸载实测通过（详见 `docs/INSTALL_TEST.md`）。
+- **可安装**：✅ 安装包 0.3.0 构建成功，隔离目录静默安装/卸载实测通过（详见 `docs/INSTALL_TEST.md`）。
 - **可启动**：✅ 桌面主程序 + 安装版 Runtime + Unity 星云渲染（含 WebGL 回退）。
 - **可卸载**：✅ 程序/快捷方式/卸载项清理；用户数据默认保留并提示。
 - **可追溯**：✅ 构建/安装/插件/Unity 证据均落盘（`artifacts/reports/`、`artifacts/unity/`、`artifacts/plugin/`）。

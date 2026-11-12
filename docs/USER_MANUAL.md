@@ -1,9 +1,9 @@
-# FCA Memory Atlas 用户手册（v0.2.0 / Windows x64）
+# FCA Memory Atlas 用户手册（v0.3.0 / Windows x64）
 
 - 产品：FCA Memory Atlas（FCA 认知记忆地图）
-- 版本：v0.2.0（桌面/Runtime/安装包 0.2.0；DSH 插件 0.2.1；Runtime API v1）
+- 版本：v0.3.0（桌面/Runtime/安装包 0.3.0；DSH 插件 0.3.1；Runtime API v1）
 - 平台：Windows 10/11 x64
-- 安装包：`FCA-Memory-Atlas-Setup-0.2.0-x64.exe`（含 Unity 星云组件）
+- 安装包：`FCA-Memory-Atlas-Setup-0.3.0-x64.exe`（含 Unity WebGL 星云组件 + DSH 插件 0.3.1 tgz）
 - 本文档适用于**安装版**（安装包安装后的 `FCA Memory Atlas.exe`）；开发版（源码 + `.cache\electron-dist`）用法见 `README.md` 与 `docs/ARCHITECTURE.md`。
 
 > Alpha 0.1 是内部评估版本：软件按“现状”提供，不承诺数据不丢失。重要的记忆数据请定期使用“数据管理 → 备份”或手动复制数据目录。
@@ -15,7 +15,7 @@
 FCA Memory Atlas 是运行在你本机上的“认知记忆地图”：
 
 - **记忆库在本地**：所有记忆、关系、标签、布局、身份与认知状态保存在本机 SQLite 数据库，默认 `%LOCALAPPDATA%\FCA-Memory-Atlas`，不上传到任何服务器。
-- **星云可视化（v0.2.0 默认 Unity WebGL）**：记忆以星体/星云形式呈现，关系以光丝相连；由 **Unity WebGL 渲染器内嵌在 Electron 窗口**中绘制（工作区旋臂 + Agent 思考节点可视化），Unity 不可用时自动回退内置 WebGL 星云。可以缩放、拖拽、切换聚类星域与性能档位。
+- **星云可视化（v0.3.0 默认 Unity WebGL）**：记忆以星体/星云形式呈现，关系以光丝相连；由 **Unity WebGL 渲染器内嵌在 Electron 窗口**中绘制（工作区旋臂 + Agent 思考节点 + **子 Agent 记忆层级展开**），Unity 不可用时自动回退内置 WebGL 星云。可以缩放、拖拽、切换聚类星域与性能档位。
 - **完整编辑能力**：记忆的新建、编辑、软删除/回收站、版本历史与 diff、合并/拆分、批量修改；关系的新建/编辑/删除；时间线与全文/语义/混合搜索。
 - **数据管理**：备份/恢复、导出/导入（仅 FCA 格式）、数据库健康检查与 VACUUM、运行日志查看。
 - **可选 LLM**：可在设置中配置 DeepSeek / OpenAI 兼容 / 自定义 Provider；本地记忆的读写、检索、可视化**不依赖** LLM。
@@ -28,8 +28,8 @@ FCA Memory Atlas 是运行在你本机上的“认知记忆地图”：
 | FCA Memory Atlas 桌面软件 | `<安装目录>\FCA Memory Atlas.exe` | Electron 38 桌面程序 |
 | FCA Local Runtime 本地服务 | `<安装目录>\runtime\` | Node 24 本地 HTTP 服务，默认 `127.0.0.1:17860` |
 | Node 24 运行时 | `<安装目录>\node\node.exe` | 随包分发，无需系统预装 Node |
-| Unity 星云渲染器（v0.2.0） | `<安装目录>\unity\FCANebula\FCANebula.exe` | Unity 2022.3 standalone，默认星云渲染；缺失/失败自动回退 WebGL |
-| DSH 插件安装包（v0.2.0 起附带） | `<安装目录>\dsh_plugin\dsh-plugin-fca-memory-*.tgz` | 可离线安装到 DSH profile（见 `dsh_plugin/README.md`） |
+| Unity 星云渲染器（v0.3.0） | `<安装目录>\unity\FCANebulaWebGL\index.html` | Unity 2022.3 WebGL 构建，内嵌 Electron 星云视图渲染；缺失/失败自动回退内置 WebGL 星云 |
+| DSH 插件安装包（v0.3.0 起附带 0.3.1） | `<安装目录>\dsh_plugin\dsh-plugin-fca-memory-0.3.1.tgz` | 可离线安装到 DSH profile（见 `dsh_plugin/README.md`） |
 
 三者关系：桌面软件启动时按需拉起 Runtime；关闭桌面软件不删除数据；Runtime 也可由命令行/插件独立管理。
 
@@ -71,8 +71,8 @@ FCA Memory Atlas 是运行在你本机上的“认知记忆地图”：
   resources\app\               桌面应用代码（main 主进程 + renderer 界面）
   resources\docs\              帮助菜单“打开文档目录”使用的文档副本
   docs\                        完整文档（用户手册、已知问题、架构、ADR 等）
-  unity\FCANebula\             Unity 星云渲染器（v0.2.0；缺失时桌面回退 WebGL）
-  dsh_plugin\                  DSH 插件 tgz + README（v0.2.0 起随包附带，可离线安装）
+  unity\FCANebulaWebGL\        Unity 星云 WebGL 构建（v0.3.0；缺失时桌面回退内置 WebGL）
+  dsh_plugin\                  DSH 插件 tgz（0.3.1）+ README（v0.3.0 起随包附带，可离线安装）
   runtime\bin\fca-runtime.js   本地服务入口
   runtime\src\                 本地服务源码
   node\node.exe                随包 Node 24
@@ -180,7 +180,7 @@ Get-FileHash .\FCA-Memory-Atlas-Setup-0.1.0-x64.exe -Algorithm SHA256 | Format-L
 ![星云总览](../artifacts/screenshots/desktop-atlas-demo.png)
 ![聚类星域](../artifacts/screenshots/desktop-atlas-clusters.png)
 
-### 6.1 Unity 星云渲染（v0.2.0 默认，内嵌界面）
+### 6.1 Unity 星云渲染（v0.3.0 默认，内嵌界面）
 
 从 v0.2.0 起，星云由 **Unity WebGL 构建**（`<安装目录>\unity\FCANebulaWebGL\`）在 **Electron 星云视图内嵌渲染**（桌面内置本地静态服务，用 iframe 加载 Unity WebGL 播放器）：
 
@@ -190,6 +190,8 @@ Get-FileHash .\FCA-Memory-Atlas-Setup-0.1.0-x64.exe -Algorithm SHA256 | Format-L
 - **数据**：Unity WebGL 通过桌面注入的本地 Runtime URL/token 拉取真实图谱数据（默认 3 秒轮询）；不伪造节点。
 - **首次加载**：Unity WebGL 需要下载 wasm/data（本地静态服务，无网络依赖），首次进入星云可能有数秒加载；之后由浏览器缓存加速。
 - **失败回退**：Unity WebGL 资源缺失、加载失败或显卡不支持 WebGL2 时，桌面自动使用内置 WebGL 星云（功能不缺失）；失败原因显示在状态卡/提示条上。
+- **子 Agent 记忆层级（v0.3.0）**：点击父 Agent思考节点（或详情面板「子 Agent 记忆（N）」区块）可展开/收起子 Agent 会话节点；再次点击收起。
+- **双向选中同步（v0.3.0）**：Unity 星云中点击记忆节点 → 右侧详情面板自动打开该记忆；在列表/搜索结果中选中记忆 → Unity 星云高亮对应节点。
 
 ![Unity 星云（真实 Runtime 数据）](../artifacts/unity/shots-final/screenshot-1-overview.png)
 ![Unity 星云 · 工作区旋臂](../artifacts/unity/shots-final/screenshot-2-workspace-arm.png)
@@ -312,13 +314,13 @@ Get-FileHash .\FCA-Memory-Atlas-Setup-0.1.0-x64.exe -Algorithm SHA256 | Format-L
 ### 13.3 外观与性能
 
 - 主题：仅深空暗色主题。
-- **星云引擎（v0.2.0）**：`Unity`（默认）或 `WebGL`；Unity 不可用时自动回退 WebGL。
+- **星云引擎（v0.3.0）**：`Unity`（默认）或 `WebGL`；Unity 不可用时自动回退 WebGL。
 - 性能档位（作用于星云渲染）：极致 / 高（默认）/ 中 / 低 / 关闭特效。
 - 快捷键提示。
 
 ### 13.4 关于 / Alpha 说明
 
-- 版本信息、API 版本、Runtime 版本、数据目录；v0.2.0 起标题栏显示 `Alpha 0.2`、状态栏显示 `Alpha 0.2.0`（从 `desktop/package.json` 版本派生）；
+- 版本信息、API 版本、Runtime 版本、数据目录；状态栏显示 `Alpha 0.3.0`（从 `desktop/package.json` 版本派生）；标题栏品牌副标题随版本显示 `Alpha 0.3`；
 - “重新运行首次启动向导”；
 - 许可与 Alpha 限制说明。
 
@@ -526,7 +528,7 @@ $FCA = "$env:LOCALAPPDATA\Programs\FCA Memory Atlas"
 
 ## 19. 已知问题与限制
 
-见 `docs/KNOWN_ISSUES.md`。v0.2.0 重要限制摘要：
+见 `docs/KNOWN_ISSUES.md`。v0.3.0 重要限制摘要（含 v0.2 系列）：
 
 - **Unity 星云**依赖可用桌面会话与 GPU/驱动（无 GPU 请用 WebGL 回退）；体积着色器最多同时渲染 8 条旋臂（超出时 HUD 提示，节点仍按正确旋臂分布）；Unity 渲染为 3 秒轮询（无 SSE）；HUD 使用系统字体。
 - **安装包与 Unity exe 未签名**：Windows SmartScreen 可能提示“未知发布者”，请校验 SHA256 后运行。

@@ -169,9 +169,22 @@ namespace FCANebula
         public static Color NodeTint(Color armSrgb, bool isEntity, string type)
         {
             Color typeColor = TypeColor(isEntity, type);
-            Color mixed = Color.Lerp(typeColor, armSrgb, 0.35f);
-            // Nodes lean white so they read as stars on top of same-hue nebula.
-            return Color.Lerp(mixed, Color.white, 0.22f);
+            // Task-14: nodes are tinted a bit more by their workspace arm so that "one arm =
+            // one workspace" is readable, while the shader keeps the white-hot core.
+            Color mixed = Color.Lerp(typeColor, armSrgb, 0.55f);
+            return Color.Lerp(mixed, Color.white, 0.12f);
+        }
+
+        /// <summary>Gold used by the parent -> child Agent-session hierarchy filaments.</summary>
+        public static Color HierarchyGoldSrgb()
+        {
+            return HexToColor("#E8C98A");
+        }
+
+        /// <summary>Faint cool white used for cross-arm (core-routed) relation filaments.</summary>
+        public static Color CrossArmColorSrgb()
+        {
+            return HexToColor("#9FB4D8");
         }
 
         public static Color TypeColor(bool isEntity, string type)

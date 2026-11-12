@@ -28,6 +28,8 @@ import { createCapture } from './capture.js'
 import { createAutoMemory } from './auto-memory.js'
 import { registerTools } from './tools.js'
 import { registerPromptContext } from './prompt-context.js'
+import { registerRecoveryContext, buildContextToolResult } from './context-recovery.js'
+import { workspaceLabelFromCwd } from './workspace.js'
 import { registerCommands } from './commands.js'
 
 const MEMORY_TYPES = ['working', 'episodic', 'semantic', 'procedural', 'autobiographical', 'project', 'relational', 'emotional']
@@ -42,6 +44,12 @@ function nowIso() {
 function truncate(text, limit) {
   const value = typeof text === 'string' ? text : ''
   return value.length > limit ? `${value.slice(0, limit)}…` : value
+}
+
+/** Positive integer argument with default and cap. */
+function intArg(value, fallback, min, max) {
+  if (!Number.isInteger(value)) return fallback
+  return Math.min(Math.max(value, min), max)
 }
 
 /** Short memory projection for tool output (keeps model tokens bounded). */
@@ -403,6 +411,62 @@ export function createBridge(ctx, rawConfig, pluginRoot) {
       }
     },
 
+    /** `fca_memory_context` implementation: recall recent memory nodes for context recovery (v0.3). */
+    async context(args, exec) {
+      const limit = intArg(args?.limit, 12, 1, 50)
+      const turnLimit = intArg(args?.turnLimit, 6, 1, 30)
+      const subagentLimit = intArg(args?.subagentLimit, 5, 1, 30)
+      const decisionLimit = intArg(args?.decisionLimit, 5, 1, 20)
+      const ready = await ensureReady()
+      if (!ready) {
+        return {
+          ok: false,
+          error: {
+            code: state.runtime.reachable ? 'RUNTIME_NOT_READY' : 'RUNTIME_UNREACHABLE',
+            message: state.lastError ? state.lastError.message : 'FCA Runtime is not available',
+          },
+          hint: 'Start the FCA Runtime (runtime/bin/fca-runtime.js serve) or enable autoStartRuntime, then retry.',
+        }
+      }
+      const sessionId = exec && exec.agent && typeof exec.agent.id === 'string' ? exec.agent.id : null
+      let cwd = ''
+      try {
+        const session = exec && exec.agent && exec.agent.session ? exec.agent.session : null
+        cwd = session && session.header && typeof session.header.cwd === 'string' ? session.header.cwd : ''
+      } catch {
+        cwd = ''
+      }
+      const requested = typeof args?.workspace === 'string' ? args.workspace.trim() : ''
+      const known = autoMemory.stats().workspace
+      const fallbackLabel = known && known.last && typeof known.last.label === 'string' ? known.last.label : 'default'
+      const workspaceLabel = requested || workspaceLabelFromCwd(cwd) || fallbackLabel
+      const listed = await client.listMemories({ limit: 200, sort: '-occurred_at' })
+      if (!listed.ok) {
+        void connect({ allowStart: false })
+        const failure = failureResult(listed, 'FCA Runtime rejected the memory list; check fca_status.')
+        failure.hint = 'Retry after fca_status reports runtime.reachable=true.'
+        return failure
+      }
+      const allItems = listed.data && Array.isArray(listed.data.items) ? listed.data.items : []
+      const items = workspaceLabel === '*' ? allItems : allItems.filter((memory) => {
+        const tags = Array.isArray(memory.tag_names) ? memory.tag_names : Array.isArray(memory.tags) ? memory.tags : []
+        return tags.includes(`workspace:${workspaceLabel}`)
+      })
+      const recovery = sessionId ? autoMemory.recoveryInfo(sessionId) : null
+      // Calling this tool IS the recovery step; clear the prompt reminder.
+      if (sessionId && recovery && recovery.needsRecovery) autoMemory.clearRecovery(sessionId)
+      return buildContextToolResult({
+        items,
+        workspace: {
+          label: workspaceLabel,
+          cwd: cwd || null,
+          source: cwd ? 'session.header.cwd' : 'plugin',
+        },
+        recovery,
+        limits: { limit, turnLimit, subagentLimit, decisionLimit },
+      })
+    },
+
     /** `fca_status` implementation: connection, capture, prompt and local paths. */
     async status() {
       if (!state.connected) {
@@ -443,6 +507,7 @@ export function createBridge(ctx, rawConfig, pluginRoot) {
           text_length: state.prompt.textLength,
           error: state.prompt.lastError,
         },
+        context_recovery: state.contextRecovery ?? { enabled: Boolean(config.autoMemoryContextRecovery), renders: 0 },
         auto_start: state.autoStart
           ? {
               attempted: state.autoStart.attempted,
@@ -470,6 +535,12 @@ export function createBridge(ctx, rawConfig, pluginRoot) {
           autoMemoryAgentToolResultChars: config.autoMemoryAgentToolResultChars,
           autoMemoryAgentMaxChars: config.autoMemoryAgentMaxChars,
           autoMemoryAgentMaxPerHour: config.autoMemoryAgentMaxPerHour,
+          autoMemorySubagentCapture: config.autoMemorySubagentCapture,
+          autoMemorySubagentMaxToolNodes: config.autoMemorySubagentMaxToolNodes,
+          autoMemorySubagentMaxChars: config.autoMemorySubagentMaxChars,
+          autoMemorySubagentMaxPerHour: config.autoMemorySubagentMaxPerHour,
+          autoMemoryContextRecovery: config.autoMemoryContextRecovery,
+          autoMemoryContextRecoveryMaxChars: config.autoMemoryContextRecoveryMaxChars,
           injectContext: config.injectContext,
           autoStartRuntime: config.autoStartRuntime,
           maxEventBytes: config.maxEventBytes,
@@ -531,6 +602,11 @@ export function createBridge(ctx, rawConfig, pluginRoot) {
         } catch (error) {
           logger.warn('prompt context registration failed', { message: error && error.message })
           state.prompt.lastError = error && error.message ? error.message : String(error)
+        }
+        try {
+          registerRecoveryContext({ ctx: child, config, bridge, state, logger })
+        } catch (error) {
+          logger.warn('context recovery registration failed', { message: error && error.message })
         }
       })
     } catch (error) {

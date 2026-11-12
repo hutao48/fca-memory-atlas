@@ -1,6 +1,6 @@
 # DSH 插件集成测试报告（FCA Memory Atlas · Product B）
 
-- 插件：`dsh-plugin-fca-memory@0.2.1`（源码 `D:\FCA\FCA-Memory-Atlas\dsh_plugin`，交付包 `artifacts/plugin/dsh-plugin-fca-memory-0.2.1.tgz`；v0.2.1 修复子会话 user-role 消息误采 + 清理 3 条 teammate 提示词噪声；v0.2 工作区归属 + Agent 思考节点、v0.1.4 自动记忆保留）
+- 插件：`dsh-plugin-fca-memory@0.3.1`（源码 `D:\FCA\FCA-Memory-Atlas\dsh_plugin`，交付包 `artifacts/plugin/dsh-plugin-fca-memory-0.3.1.tgz`；v0.3.1 记忆时间戳 + 子 Agent 全量记忆 + 父子层级 + 上下文恢复 + id8 规范化修复；v0.2.x 工作区/Agent 思考节点、v0.1.4 自动记忆保留）
 - 被测环境（本次全部为真实组件，不含 stub）：
   - DSH NEXT `dsh-desktop-next 2.0.22-next`，profile `desktop`（`<DSH_HOME>\profiles\desktop`）
   - 真实 FCA Local Runtime `0.1.0`（`D:\FCA\FCA-Memory-Atlas\runtime\bin\fca-runtime.js`），`http://127.0.0.1:17860`
@@ -36,6 +36,9 @@
 | T18 | v0.2 升级真实安装 + 加载 | 新目录解包 tgz → `plugin_manager remove_bundle` → `install_bundle` | ✅ **2026-11-12 19:20 实测**：`application:"applied"`、`version:"0.2.0"`；Host 日志 `plugin loaded {…,"autoMemoryAgentNodes":"summary"}`；`fca_status.plugin.version=0.2.0`、`auto_memory.workspace.last={label:"FCA",cwd:"D:\\FCA",source:"session.header.cwd"}`（§11） |
 | T19 | 工作区标签 + Agent 思考节点真实落库 | 真实子代理会话（推理+工具调用+结果）→ `turn/end` → Runtime 记忆 | ✅ **真实**：`GET /api/v1/memories` 可检索到带 `workspace:FCA` 与 `Agent思考节点` 标签的记忆（含【关键推理】/【工具执行】/【结论】三节与真实工具节点），见 §11.3 |
 | T20 | v0.2.1 子会话 user-role 消息过滤（真实回归） | 真实 workflow 子代理会话 spawn prompt + `turn/end` | ✅ **真实**：子会话 `6d4ba096…`（header `parentSession`/`origin:"subagent"`/`delegationDepth:2`）的 spawn prompt（user/message + `source.kind=user`）**未**产生 episodic 记忆，`fca_status.auto_memory.counters.skippedChildSession=5`、`sessions.child=2`；该子会话的 Agent 思考节点按设计仍写入（测试残留已软删），见 §11.7 |
+| T21 | v0.3.1 记忆时间戳（真实 Runtime） | 真实用户消息/Agent思考节点/子会话记忆写入后查 API | ✅ 均带 `occurred_at`（ISO）+`occurred_precision="exact"`：用户消息 `mem_293f1b1a…`=`2026-11-12T16:43:35.332Z`、子会话 `mem_87cf63da…`=`16:44:13.898Z`、父回合 `mem_63aa5ac5…`=`16:44:11.360Z`（§12.2） |
+| T22 | v0.3.1 子 Agent 会话全量记忆 + 父子层级（真实） | teammate 真实 workflow 子代理 → 子 turn/end + 父 turn/end → Runtime tags/relation | ✅ 子会话记忆 `mem_87cf63da…`（tags `Agent子会话/subagent-session:09be92a1/parent-session:c3769704/parent-memory:mem_63aa5ac5…/workspace:FCA`）；父回合记忆 `mem_63aa5ac5…` tags 含 `children:09be92a1`；关系 `rel_a95800f5…`=`custom/spawned_subagent`（from 父 → to 子）；计数器 `subagentSessions.stored=2/childrenTagged=1`、`relations.created=1/tagPatched=1`（§12.3） |
+| T23 | `fca_memory_context` 上下文恢复工具（真实） | 真实 Agent 调用 + systemPrompt 恢复指令观测 | ✅ 真实返回 6 条最近记忆/3 条 Agent思考节点/3 条子Agent会话/3 条关键决策（含 occurred_at/tags，`recovery.needs_recovery=false`）；恢复指令 section 真实出现在 Agent 提示中；compaction→提醒路径受"本机安装后尚无新压缩事件"限制（单测+真实历史事件覆盖，§12.5/§12.6） |
 
 ## 2. 安装输出（T1/T2 原始结果）
 
@@ -601,4 +604,73 @@ v0.2.0 上线后 Runtime 里出现 3 条标题为 teammate 启动提示词的 ep
 - 安装：`plugin_manager remove_bundle`（`application:"applied"`）→ `install_bundle target=…\.cache\plugin-relink-v021\package`（`application:"applied", version:"0.2.1"`）；Host 日志 `2026-11-12T10:34:51.555Z plugin loaded {…,"autoMemoryAgentNodes":"summary"}`；profile 依赖 `link:…/plugin-relink-v021/package`；未重启 DSH。
 - 单测：`tools\node.cmd --test tests\unit\plugin\plugin-pure.test.js` → **24/24 PASS**（新增 session-scope 判定、子会话 user 消息过滤 + skippedChildSession、子会话 Agent 节点仍采集、根会话不受影响）。
 - 真实用户消息的 workspace 标签回归：本轮期间根会话没有新的真实用户输入；该路径的观测点仍为"用户下一条真实消息"（写入时必带 `workspace:FCA`，由 24 项单测 + 真实事件回放覆盖）。`skippedChildSession` 的真实增长已由 T20 证明子会话过滤生效。
+
+
+---
+
+## 12. v0.3.x：时间戳 + 子 Agent 全量记忆 + 父子层级 + 上下文恢复（2026-11-13 真实验证）
+
+> 结论：**v0.3.1 已在真实 DSH Host + 真实 Runtime 中生效**（实际安装——非 stub）。真实子代理会话 → 插件自动写入「子 Agent 会话」episodic 记忆（`occurred_at` exact、契约 tags、`children:` 父标记）→ Runtime 真实 `custom/spawned_subagent` 父子关系 + 子记忆 `parent-memory:` 兜底 tag；`fca_memory_context` 真实返回工作区最近记忆/Agent思考节点/子Agent会话/关键决策；恢复指令（systemPrompt.section）真实出现在 Agent 提示中。原始证据：`artifacts/plugin/v0.3.1-install-log.json`、`v0.3.1-tag-repair.json`、`v0.3.1-noise-cleanup.json`、`v0.3.0-evidence.json`。
+
+### 12.1 版本与安装（真实）
+
+- `dsh-plugin-fca-memory@0.3.1`；tgz：`artifacts/plugin/dsh-plugin-fca-memory-0.3.1.tgz`（68,625 B，22 文件，SHA256 `651F764CB393D693725204988996399D69377EBDC143B16E1563A2741A0076E5`）。
+- 升级路径（不重启 DSH、不重启 Runtime）：解包到新目录 `.cache/plugin-relink-v031/package` → `plugin_manager remove_bundle` → `install_bundle`（`application:"applied"`，`version:"0.3.1"`）→ Host 日志 `plugin loaded` → `fca_status.plugin.version="0.3.1"`、`started_at="2026-11-12T16:43:55.409Z"`、`local.runtimeScriptPath` 指向 v031 包目录。
+- `enables.fcaRuntime` 仍为 `>=0.1.0 <0.2.0`（与 Runtime 0.1.0 兼容）。
+
+### 12.2 记忆时间戳（用户："更新记忆自动记录时间"）
+
+- 所有自动记忆写 `occurred_at`（ISO）+ `occurred_precision="exact"`：用户消息取 `user/message.time`；Agent思考节点取回合首个事件时间；子会话记忆取子会话首条事件时间。实现见 `src/time.js`。
+- 真实样例（Runtime API）：
+  - 用户消息 `mem_<redacted>`「旋臂布局不修改的前提下调整节点布局，同一条链在同一旋臂」→ `occurred_at=2026-11-12T16:43:35.332Z`、`precision=exact`、tags=`DSH用户消息,DSH自动记忆,workspace:FCA`；
+  - 用户消息 `mem_863af208…` → `2026-11-12T16:40:22.891Z`；`mem_e5ad55…` → `16:40:07.304Z`（均为真实用户输入，非注入）；
+  - 子会话记忆 `mem_87cf63da…` → `2026-11-12T16:44:13.898Z`；父回合 `mem_63aa5ac5…` → `16:44:11.360Z`。
+- 旧记忆不迁移（无 occurred_at 的仍显示未知，符合任务约定）。
+
+### 12.3 子 Agent 全量采集 + 父子层级（真实子代理会话）
+
+**真实触发**：teammate `dsh-plugin` 在真实会话中用 workflow 启动 1 个最小子代理（child 会话 `09be92a1…`，parent=`c3769704…`，delegationDepth=2），子代理真实执行 `Get-Content .../package.json | Select-String '"version"'` 并回复 `0.3.1`。子代理 turn/end + dsh-plugin 的 turn/end 被插件 v0.3.1 自动聚合：
+
+| 角色 | memory id | title | occurred_at | tags |
+|---|---|---|---|---|
+| 父回合（子会话 dsh-plugin 的回合） | `mem_<redacted>` | `子 Agent 会话 · FCA · c3769704` | `2026-11-12T16:44:11.360Z` | `Agent子会话`,`DSH会话`,**`children:09be92a1`**,`parent-session:d9ea76db`,`subagent-session:c3769704`,`workspace:FCA` |
+| 子（workflow probe） | `mem_<redacted>` | `子 Agent 会话 · FCA · 09be92a1` | `2026-11-12T16:44:13.898Z` | `Agent子会话`,`DSH会话`,**`parent-memory:mem_63aa5ac5…`**,`parent-session:c3769704`,`subagent-session:09be92a1`,`workspace:FCA` |
+| **父子关系** | `rel_a95800f55ab551511dac55a74b6052a8` | `custom` / label `spawned_subagent` / directed=true / confidence=1 / weight=1 / source=agent | created `2026-11-12T16:44:23.227Z` | from=`mem_63aa5ac5…` → to=`mem_87cf63da…` |
+
+- 子会话记忆 body 分节（真实数据）：`时间：… · 第 N 回合 · 子会话：09be92a1 · 父会话：c3769704` + `【任务】`（spawn prompt 原文，脱敏/截断）+ `【关键推理】` + `【工具执行】`（工具名/参数摘要/结果摘要）+ `【结果】` + `【结论】`；`memory_type=episodic`、`importance=0.5`。
+- 插件计数器（真实 `fca_status`，v0.3.1 进程内）：`subagentSessions.counters={"eventsSeen":94,"turnsSeen":2,"captured":2,"stored":2,"spawnPromptsSeen":1,"toolCallsSeen":30,"toolResultsSeen":28,"childrenTagged":1,"idNormalizeFailed":0}`；`relations.counters={"attempted":1,"created":1,"failed":0,"tagPatchAttempted":1,"tagPatched":1,"idNormalizeFailed":0}`；`tagNormalization.failed=0`。
+- 层级可视化数据链：父记忆 tags `children:<childId8>`（每个子会话一个独立 tag）→ 子记忆 tags `parent-session:<parentId8>` + `parent-memory:<父memoryId>` → Runtime relation `custom/spawned_subagent`，Unity/桌面可直接按 tag 或 relation 展开子节点。
+
+### 12.4 tag id8 规范化修复（v0.3.1，Lead 真实 graph 发现）
+
+- 问题：`session-<uuid>` 形式父会话直接取前 8 位得到无意义 `parent-session:session-`（真实受影响：`mem_cfd58ede…`、`mem_efe91a48…`、`mem_b5f20ae8…`）。
+- 修复：`sessionId8` 先去 `session-` 前缀再取 8 位（`session-d9ea76db-…` → `d9ea76db`）；对象引用取 `.sessionId/.session_id/.id`；`children:/subagent-session:/parent-session:` 与 source.note 统一使用；失败计数 `fca_status.tagNormalization.failed` + `subagentSessions.counters.idNormalizeFailed` + `relations.counters.idNormalizeFailed`。
+- 真实修复：3 条存量记忆 PATCH tags（`parent-session:session-` → `parent-session:d9ea76db`，HTTP 200，证据 `v0.3.1-tag-repair.json`）；v0.3.1 上新写入的 3 条子会话记忆 tags 均为 8 位 hex（见 §12.3，`tagNormalization.failed=0`）。
+
+### 12.5 `fca_memory_context` 上下文恢复工具（真实调用）
+
+真实 Agent 会话（本 teammate）运行 `fca_memory_context({workspace:"FCA",limit:6,turnLimit:3,subagentLimit:3})` 的真实返回（节选）：
+
+```json
+{"ok":true,"workspace":{"label":"FCA","cwd":"D:\\FCA","source":"session.header.cwd"},
+ "generated_at":"2026-11-12T16:44:54.502Z",
+ "counts":{"recent_memories":6,"agent_turn_nodes":3,"subagent_sessions":3,"key_decisions":3},
+ "recent_memories":[{"id":"mem_<redacted>","title":"子 Agent 会话 · FCA · 09be92a1",
+   "occurred_at":"2026-11-12T16:44:13.898Z","tags":["Agent子会话","DSH会话","parent-memory:mem_63aa5ac5…",…]}, …],
+ "subagent_sessions":[… 3 条，含 occurred_at / tags / excerpt …],
+ "key_decisions":[{"id":"mem_c49e6620…","title":"unity版不要单独开窗口，要集成软件内显示"}, …],
+ "recovery":{"needs_recovery":false,"compacted_at":null,"compaction_count":0}}
+```
+
+### 12.6 compaction 恢复注入（真实能力 + 如实限制）
+
+- 真实 Host API（`@deepseek-ai/dsh-system-prompt`）支持 `systemPrompt.section()`（静态注入）与 `systemPrompt.context()`（每次提示组装动态调用，`AssembleContext.agent` 可取会话）；插件 v0.3 注册：
+  - section `fca-memory-recovery-instruction`（order 940）：常驻"压缩后/记不清时必须先调用 fca_memory_context"规则 —— **真实出现在本 teammate 会话的提示中（已观测）**；
+  - context `fca-memory-recovery-state`（order 941）：监听真实 `compaction/start|prune|summary|end` 事件，`compaction/end` 后渲染压缩次数/时间/摘要开头并提示重读；模型调用 `fca_memory_context`（`tool/call` 事件）后自动清除。
+- **真实限制（如实）**：插件自身不触发 compaction；本机在 v0.3.x 安装后尚未发生新的真实压缩事件（`fca_status.compactions.eventsSeen=0`、`recovery.renders=0`），因此 `compaction→提醒` 路径由单测（真实 compaction 事件形状）+ 历史真实压缩会话事件回放覆盖；下一次真实压缩会自动生效。若无插件环境，兜底方案是在项目/代理指令中写明"压缩后必须先调用 fca_memory_context"（插件已自动注入同规则）。
+
+### 12.7 单元测试与清理
+
+- `tools\node.cmd --test tests\unit\plugin\plugin-pure.test.js` → **33/33 PASS**（时间戳/子会话全量聚合/契约 tags/children 独立 tag/嵌套层级 relation/custom 失败回退 derived_from/parent-memory tag/compaction→恢复状态→tool 清除/fca_memory_context 构造/systemPrompt 注册与动态渲染/id8 规范化）。
+- 测试噪声清理（真实软删除，`DELETE /api/v1/memory/{id}`，回收站可恢复）：删除前两次父子探针的重复记忆对 4 条（`mem_efe91a48…`、`mem_8f2bf64e…`、`mem_b5f20ae8…`、`mem_146e9c3e…`），保留最终 v0.3.1 验证对与真实 teammate 会话记忆；graph nodes 57→53、memories 50→46（include_deleted 60）。证据 `v0.3.1-noise-cleanup.json`。
 

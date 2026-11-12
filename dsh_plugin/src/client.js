@@ -212,6 +212,47 @@ export class RuntimeClient {
     return this.request('GET', `/api/v1/memory/${encodeURIComponent(id)}${suffix}`)
   }
 
+  /** PATCH /api/v1/memory/{id} (optimistic concurrency via `expected_version`). */
+  patchMemory(id, payload) {
+    return this.request('PATCH', `/api/v1/memory/${encodeURIComponent(id)}`, { body: payload })
+  }
+
+  /**
+   * GET /api/v1/memories with list/filter query parameters.
+   * @param params - `{ limit, cursor, q, memory_type, tags, project, participant, from, to, include_deleted, only_deleted, sort }`;
+   *   arrays (`tags`) are serialized as comma-separated values, `undefined` keys are skipped.
+   */
+  listMemories(params = {}) {
+    const query = new URLSearchParams()
+    for (const [key, value] of Object.entries(params || {})) {
+      if (value === undefined || value === null || value === '') continue
+      if (Array.isArray(value)) {
+        const joined = value.filter((item) => item !== undefined && item !== null && String(item).trim()).join(',')
+        if (joined) query.set(key, joined)
+      } else {
+        query.set(key, String(value))
+      }
+    }
+    const suffix = query.toString()
+    return this.request('GET', `/api/v1/memories${suffix ? `?${suffix}` : ''}`)
+  }
+
+  /** POST /api/v1/relations (memory/entity graph edge). */
+  createRelation(payload) {
+    return this.request('POST', '/api/v1/relations', { body: payload })
+  }
+
+  /** GET /api/v1/relations?node_kind=&node_id=&relation_type=. */
+  listRelations(params = {}) {
+    const query = new URLSearchParams()
+    for (const [key, value] of Object.entries(params || {})) {
+      if (value === undefined || value === null || value === '') continue
+      query.set(key, String(value))
+    }
+    const suffix = query.toString()
+    return this.request('GET', `/api/v1/relations${suffix ? `?${suffix}` : ''}`)
+  }
+
   /** GET /api/v1/state. */
   getState() {
     return this.request('GET', '/api/v1/state')

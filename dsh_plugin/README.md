@@ -3,7 +3,7 @@
 把本机 DeepSeek Harness（DSH）接进 **FCA Memory Atlas** 的本地认知服务：给 Agent 注册记忆检索/写入工具，**把你在任意 DSH 会话里输入的消息与 Agent 每回合的思考节点自动写成 FCA 记忆**并归到当前工作区的星云旋臂，把会话事件按安全策略回传 FCA Runtime，并可选地在系统提示里注入一小段记忆摘要。
 
 - 产品：FCA Alpha 0.1 · Product B
-- 插件版本：`0.2.1`
+- 插件版本：`0.3.1`
 - 形态：Cordis **bundle**（`package.json` 的 `dsh.bundle.patch` → `cordis.patch.yml` + Host 入口 `main.js` 的 `export function apply(ctx, config)`）
 - 依赖：DSH NEXT（Electron，实测 `dsh-desktop-next 2.0.22-next` / `@deepseek-ai/cordis 4.1.0` / loader `1.1.0`）+ 本机 FCA Local Runtime（`http://127.0.0.1:17860`，接口见 `docs/PUBLIC_INTERFACE_FREEZE.md`）
 - 零第三方运行时依赖：只用 `node:` 内置模块（`node:http` 不直接用，HTTP 用 Host 自带的 `fetch`）
@@ -90,6 +90,18 @@ Runtime 没起来时插件**不会假装连接成功**：`fca_status` 会显示 
 | `autoMemoryAgentToolResultChars` | integer | `600` | Agent 思考节点：单个工具结果摘要字数上限（脱敏后截断） |
 | `autoMemoryAgentMaxChars` | integer | `12000` | Agent 思考节点：聚合正文上限（需容纳推理+8 个工具节点+结论） |
 | `autoMemoryAgentMaxPerHour` | integer | `60` | Agent 思考节点：每小时最多写入条数（独立于消息记忆的限流） |
+| `autoMemorySubagentCapture` | enum | `off`（bundle 配置为 `summary`） | **子 Agent 会话全量采集**（v0.3）：`off` / `summary`（每个子会话每回合聚合 1 条 episodic 记忆：任务/关键推理/工具执行/结果/结论） |
+| `autoMemorySubagentMaxToolNodes` | integer | `12` | 子 Agent 会话：单条记忆最多渲染的工具调用条数 |
+| `autoMemorySubagentTaskChars` | integer | `1200` | 子 Agent 会话：spawn prompt/任务摘要字数上限 |
+| `autoMemorySubagentReasoningChars` | integer | `1500` | 子 Agent 会话：关键推理摘要字数上限 |
+| `autoMemorySubagentConclusionChars` | integer | `800` | 子 Agent 会话：结论摘要字数上限 |
+| `autoMemorySubagentResultChars` | integer | `1000` | 子 Agent 会话：结果摘要字数上限 |
+| `autoMemorySubagentToolArgChars` | integer | `400` | 子 Agent 会话：单个工具参数摘要上限（脱敏后） |
+| `autoMemorySubagentToolResultChars` | integer | `600` | 子 Agent 会话：单个工具结果摘要上限（脱敏后） |
+| `autoMemorySubagentMaxChars` | integer | `12000` | 子 Agent 会话：聚合正文上限 |
+| `autoMemorySubagentMaxPerHour` | integer | `60` | 子 Agent 会话：每小时最多写入条数（独立限流） |
+| `autoMemoryContextRecovery` | boolean | `false`（bundle 配置为 `true`） | **上下文压缩恢复**（v0.3）：注入常驻恢复指令 + 压缩后动态提醒（`systemPrompt` section/context），并监听真实 `compaction/*` 事件 |
+| `autoMemoryContextRecoveryMaxChars` | integer | `900` | 上下文恢复提醒的最大字数 |
 | `redactPatterns` | string[] | `[]` | 额外脱敏正则（内置 Bearer / `sk-*` / apikey / token 字段模式之外） |
 | `injectContext` | boolean | `false` | 是否向系统提示注入记忆摘要 |
 | `maxEventBytes` | integer | `8192` | 单个事件 payload 截断上限 |
@@ -107,6 +119,7 @@ Runtime 没起来时插件**不会假装连接成功**：`fca_status` 会显示 
 | `fca_memory_search` | 检索记忆（`query`、`mode`、`limit`、`memory_type`、`tags`、时间范围、`include_deleted`） | `POST /api/v1/memory/search` |
 | `fca_memory_store` | 写入一条记忆（`title`、`body`、`memory_type`、`occurred_at`、`importance`、`tags`、`participants`、`project`、`source_note`），`origin=agent`、`source.ref=dsh-plugin` | `POST /api/v1/memory/store` |
 | `fca_memory_get` | 按 id 读完整记忆 + 关系 + 版本数，可带 `version` 读历史版本 | `GET /api/v1/memory/{id}` |
+| `fca_memory_context` | **上下文恢复**（v0.3）：按 workspace 返回最近记忆（含真实 `occurred_at`）、最近 Agent 思考节点、子 Agent 会话摘要、关键决策；压缩后/记不清时先调用它 | `GET /api/v1/memories`（本地过滤） |
 
 工具输出统一为紧凑 JSON：`{ ok: true, ... }` 或 `{ ok: false, error: { code, message, trace_id? }, hint? }`。Runtime 不可达/未授权时不会抛出到 Host，只返回结构化失败并提示先启动 Runtime。
 
@@ -180,6 +193,28 @@ Runtime 没起来时插件**不会假装连接成功**：`fca_status` 会显示 
 
 > 说明：`autoMemoryAgentNodes` 在 `config.js` 中默认 `off`（向后兼容旧配置），交付 bundle 的 `cordis.patch.yml` 默认 `summary`——安装本 bundle 即开启；若只想保留消息记忆，把该项改为 `off`。
 
+### 5.3 子 Agent 会话全量采集与父子层级（v0.3）
+
+用户要求"跟子 agent 之间的对话以及思考过程也得全部写进去，视觉上点开主 agent 的记忆节点拓展打开子 agent 记忆节点"。v0.3 对 **child 会话**（`session.header.parentSession` / `origin:"subagent"` / `delegationDepth>0`）按 `session+turn` 聚合：
+
+- **采集内容**：spawn prompt（子会话首条 `source.kind="user"` 消息 = 任务）、`assistant/message` 的 reasoning/text、`tool/call`（工具名+脱敏参数摘要）、`tool/result`（成功/失败+脱敏结果摘要）、结论。
+- **生成 1 条 `episodic` 记忆/子会话回合**（父会话的 Agent思考节点仍是 `procedural`，二者不重复）：
+  - `title` = `子 Agent 会话 · <workspaceLabel> · <childId8>`；
+  - `tags` = `Agent子会话`、`subagent-session:<childId8>`、`parent-session:<parentId8>`、`workspace:<label>`、`DSH会话`（父回合另含 `children:<childId8>`，每个子会话一个独立 tag）。**id8 规范化（v0.3.1）**：`session-<uuid>` 会去掉 `session-` 前缀后取 8 位（如 `session-d9ea76db-…` → `d9ea76db`），对象引用取 `.sessionId/.session_id/.id`；失败计入 `fca_status.tagNormalization.failed`；
+  - `body` 分节：`【任务】` / `【关键推理】` / `【工具执行】` / `【结果】` / `【结论】`，首行含 `时间`/回合/子会话/父会话；脱敏+截断（正文 ≤12000 字、工具 ≤12 条）；
+  - `occurred_at` = 子会话首条事件时间（`occurred_precision="exact"`）；去重 `session+turn`；独立每时限流 `autoMemorySubagentMaxPerHour`。
+- **父记忆 children tags**：父回合通过 `subagent/catalog` 事件（`data.childId`，真实父会话事件）记录该回合 spawn 的子会话；父 Agent思考节点写入时每个子会话追加一个 `children:<childId8>` tag。
+- **父子关系（Runtime relation）**：父 Agent思考节点记忆 → 子会话记忆，`POST /api/v1/relations`，`relation_type="custom"`（`label="spawned_subagent"`，`directed=true`，confidence/weight=1，source=agent）；`custom` 被拒时自动回退 `derived_from` 并计数。关系建立后给子记忆 PATCH 追加兜底 tag `parent-memory:<父memoryId>`（失败容忍并在 `fca_status.relations` 计数/lastError 记录）。
+- **可观测**：`fca_status.auto_memory.subagentSessions`（mode/counters/limits）、`.relations`（created/failed/fallbackType/tagPatched/pendingWaiters）、`.compactions`、`.recovery`。
+
+### 5.4 上下文压缩恢复（v0.3）
+
+用户要求"压缩上下文后必须重读记忆节点，在记不清干过什么的时候也要读记忆节点恢复上下文中被压缩的记忆"。实现基于真实 DSH 能力（`@deepseek-ai/dsh-system-prompt` 的 `systemPrompt.section/context`、真实 `compaction/start|prune|summary|end` 会话事件）：
+
+- **常驻恢复指令**（`autoMemoryContextRecovery: true`）：注册 `systemPrompt.section`（`fca-memory-recovery-instruction`，order 940），提示模型"上下文被压缩/记不清时先调用 `fca_memory_context` 重读记忆"。
+- **压缩后动态提醒**：插件监听真实 compaction 事件；`compaction/end` 后该会话标记 `needsRecovery`，下一次提示组装时 `systemPrompt.context`（`fca-memory-recovery-state`，order 941）渲染压缩次数/时间、工作区、压缩摘要开头，并要求先调用 `fca_memory_context`。模型真正调用 `fca_memory_context` 后（观察 `tool/call` 事件）提醒自动清除。
+- **恢复工具** `fca_memory_context`：按 workspace 返回最近记忆（含 `occurred_at`）、最近 Agent思考节点、子 Agent 会话摘要、关键决策；参数 `workspace` / `limit` / `turnLimit` / `subagentLimit` / `decisionLimit`。
+- **限制（如实）**：本插件不自行触发压缩；若压缩发生在插件未加载期间则无提醒（下次真实压缩会恢复）。另提供可落地兜底：在 `cordis.patch.yml`/项目 `AGENTS.md` 或系统提示中加入"上下文压缩后必须先调用 `fca_memory_context`"的 Agent 指令（插件已通过 section 自动注入同样的规则，无需手工重复）。
 
 ## 6. 系统提示注入（默认关）
 
@@ -218,7 +253,7 @@ tools\pnpm.cmd --dir dsh_plugin pack --pack-destination D:\FCA\FCA-Memory-Atlas\
 # 说明：--dir dsh_plugin 会让相对 destination 解析到 dsh_plugin 下，故用绝对路径；
 # 也可用 DSH 自带 node + pnpm.mjs 执行等价命令（2026-11-12 复测使用，不依赖批处理包装）：
 # & '<DSH 安装>\resources\runtime\x64\primary-runtime\dependencies\node\bin\node.exe' '<DSH 安装>\resources\runtime\x64\primary-runtime\dependencies\pnpm\bin\pnpm.mjs' --dir dsh_plugin pack --pack-destination D:\FCA\FCA-Memory-Atlas\artifacts\plugin
-# 产物：artifacts\plugin\dsh-plugin-fca-memory-0.2.1.tgz
+# 产物：artifacts\plugin\dsh-plugin-fca-memory-0.3.1.tgz
 ```
 
 
@@ -243,6 +278,12 @@ tools\pnpm.cmd --dir dsh_plugin pack --pack-destination D:\FCA\FCA-Memory-Atlas\
 6. 插件异常一律隔离在插件内部；如果 Runtime 长时间不可用，队列会按上限丢弃并计数，不会无限增长。
 7. **采集队列在“运行时恢复”后的 flush 时机（v0.1.3 已修复）**：`turn/end` 若在 Runtime 停机窗口内被采集，会先入队（不丢）；v0.1.3 起插件自动拉起 Runtime 成功后会立即 flush 审计事件与自动记忆队列，无需等下一次健康轮询。详见 `docs/PLUGIN_INTEGRATION_TEST.md` §6.5。
 8. **自动记忆的边界**：消息记忆只保存消息原文（不做 LLM 摘要/事实抽取），超过 `autoMemoryMaxChars` 截断；Agent 思考节点是**规则聚合摘要**（非 LLM 总结）：推理/结论截取前段固定字数、工具节点最多 8 条、正文上限 `autoMemoryAgentMaxChars`，超出会截断；短消息、重复内容、Host 注入消息不保存；**只采人类根会话的 user 消息（子会话 spawn prompt 不写，v0.2.1）**；每小时有硬限流（消息与 Agent 节点各自独立）；消息/推理/工具摘要内敏感内容会被脱敏后仍然写入本地记忆库（只在本机）。不想保存时把 `autoMemory` 设为 `off`（同时关闭 Agent 节点）或把 `autoMemoryAgentNodes` 设为 `off`（只关思考节点）。
-9. **自动记忆只新增、不修改已有记忆**：自动流程不会改写/删除旧记忆（避免误覆盖）；修正/删除请在桌面软件里做，或通过 Runtime API 的 PATCH/DELETE。
+9. **自动记忆只新增、不修改已有记忆**：自动流程不会改写/删除旧记忆（避免误覆盖）；例外（v0.3）：父子关系建立后会给**子会话记忆** PATCH 追加 `parent-memory:<父memoryId>` 兜底 tag（只追加 tag，不改标题/正文）。修正/删除请在桌面软件里做，或通过 Runtime API 的 PATCH/DELETE。
 10. **从解包目录安装时的自动拉起路径**：`autoStartRuntime` 默认找 `<插件包>/../runtime/bin/fca-runtime.js`；若插件包不在 Runtime 相邻目录，请设置 `runtimeScriptPath`（本机验收用 junction 让该路径可用）。
+11. **v0.3 子 Agent 会话记忆是规则聚合摘要（非 LLM 总结）**：spawn prompt/推理/结论按字数截断，工具最多 12 条，正文 ≤12000 字；超长内容后续步骤的细节可能被截断，完整序列始终保留在 DSH 会话日志中（`<DSH_HOME>\sessions\`）。
+12. **v0.3 父子关系依赖实时事件顺序**：父回合的 `children:`/关系要求父会话 `subagent/catalog`（或子会话首个事件）与父 `turn/end` 都在插件运行期间被观察到；若子代理在插件未加载/父回合已结束后才完成，关系可能缺失（tags 兜底 `parent-memory:*` 仍可工作）。关系失败不会阻塞记忆写入，`fca_status.relations.lastError` 会记录。
+13. **v0.3 上下文恢复提醒为"提示注入"而非强制工具调用**：插件通过 `systemPrompt.section/context` 让模型看到恢复规则和压缩提醒，但最终是否调用 `fca_memory_context` 由模型决定；插件不拦截/不强制模型步骤。提醒在模型调用该工具后自动清除。
+14. **时间戳精度**：`occurred_at` 取真实 DSH 事件时间（epoch ms），`occurred_precision="exact"`；仅当事件缺少 time 时回退到捕获时间（仍写 exact 并记录在 source.note）。旧记忆不会补写 occurred_at。
+
+
 

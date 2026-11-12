@@ -12,6 +12,8 @@
  *  - 真实 Runtime API；错误/空态显式展示；无假数据
  */
 
+import { classifyHierarchyRelation, hierarchyRelationLabel, isHierarchyRelation } from '../lib/hierarchy.js';
+
 export const meta = {
   id: 'relations',
   title: '关系探索',
@@ -302,6 +304,19 @@ export function createView(ctx) {
       'data-testid': opts.testid || null,
       on: { click: (event) => opts.onClick && opts.onClick(event) },
     }, [opts.icon ? icon(opts.icon) : null, opts.label ? el('span', { text: opts.label }) : null]);
+  }
+
+  /** 对象值安全转文本，避免把对象当文本渲染成 [object Object] */
+  function safeText(value, fallback = '—') {
+    if (value === null || value === undefined || value === '') return fallback;
+    if (typeof value === 'string') return value;
+    if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+    try {
+      const text = JSON.stringify(value);
+      return text && text !== '{}' ? text : fallback;
+    } catch {
+      return String(value);
+    }
   }
 
   function formatTime(iso) {
@@ -620,11 +635,13 @@ export function createView(ctx) {
 
   function renderRelationRow(relation) {
     const meta = relationTypeMeta(relation.relation_type);
-    const row = el('div', { class: `view-rel__row view-rel__row--${meta.color}${relation.deleted_at ? ' is-deleted' : ''}`, role: 'listitem', 'data-testid': `relation-row-${relation.id}` });
+    const hierarchy = isHierarchyRelation(relation);
+    const row = el('div', { class: `view-rel__row view-rel__row--${hierarchy ? 'violet' : meta.color}${relation.deleted_at ? ' is-deleted' : ''}`, role: 'listitem', 'data-testid': `relation-row-${relation.id}` });
     const left = el('div', { class: 'view-rel__row-main' }, [
       el('div', { class: 'view-rel__row-head' }, [
-        el('span', { class: `view-rel__type view-rel__type--${meta.color}`, text: meta.label }),
+        el('span', { class: `view-rel__type view-rel__type--${hierarchy ? 'violet' : meta.color}`, text: hierarchy ? `${meta.label} · ${hierarchyRelationLabel(relation)}` : meta.label }),
         el('span', { class: 'view-rel__mono view-rel__muted', text: relation.id }),
+        hierarchy ? el('span', { class: 'view-rel__tag view-rel__tag--violet', 'data-testid': `relation-hierarchy-badge-${relation.id}`, text: '子 Agent 层级' }) : null,
         relation.deleted_at ? el('span', { class: 'view-rel__tag view-rel__tag--rose', text: '已删除' }) : null,
         el('span', { class: 'view-rel__tag', text: relation.directed === false ? '无向' : '有向' }),
         el('span', { class: 'view-rel__tag', text: `置信 ${relation.confidence ?? '—'}` }),
@@ -1019,34 +1036,95 @@ export function createView(ctx) {
 
   function showRelationDetail(relation) {
     try {
-      if (ctx.detail && typeof ctx.detail.show === 'function') {
-        const meta = relationTypeMeta(relation.relation_type);
-        ctx.detail.show({
-          title: `${meta.label}${relation.label ? ` · ${relation.label}` : ''}`,
-          subtitle: `关系 ${relation.id} · v${relation.version ?? '?'}`,
-          content: (host) => {
-            const wrap = el('div', { class: 'view-rel__detail' });
-            wrap.append(
-              el('div', { class: 'view-rel__detail-row' }, [el('span', { class: 'view-rel__label', text: '起点' }), renderNodeChip(relation.from, relation.relation_type)]),
-              el('div', { class: 'view-rel__detail-row' }, [el('span', { class: 'view-rel__label', text: '终点' }), renderNodeChip(relation.to, relation.relation_type)]),
-              el('div', { class: 'view-rel__detail-row' }, [el('span', { class: 'view-rel__label', text: '类型' }), el('span', { text: `${meta.label}（${relation.relation_type}）` })]),
-              el('div', { class: 'view-rel__detail-row' }, [el('span', { class: 'view-rel__label', text: '置信度' }), el('span', { text: String(relation.confidence ?? '—') })]),
-              el('div', { class: 'view-rel__detail-row' }, [el('span', { class: 'view-rel__label', text: '权重' }), el('span', { text: String(relation.weight ?? '—') })]),
-              el('div', { class: 'view-rel__detail-row' }, [el('span', { class: 'view-rel__label', text: '来源' }), el('span', { text: SOURCE_LABEL[(relation.source && relation.source.type) || 'user'] || '—' })]),
-              relation.evidence ? el('div', { class: 'view-rel__detail-row' }, [el('span', { class: 'view-rel__label', text: 'evidence' }), el('span', { text: relation.evidence })]) : null,
-              el('div', { class: 'view-rel__detail-row' }, [el('span', { class: 'view-rel__label', text: '创建时间' }), el('span', { text: formatTime(relation.created_at) })]),
-            );
-            host.append(wrap);
-            return wrap;
-          },
-          actions: [{ label: '关闭', variant: 'secondary', onClick: () => ctx.detail.clear && ctx.detail.clear() }],
-        });
-      } else {
-        notify('info', `关系 ${relation.id}：${relationTypeLabel(relation.relation_type)}`);
+      if (!relation) return;
+      if (!(ctx.detail && typeof ctx.detail.show === 'function')) {
+        notify('info', `关系 ${safeText(relation.id)}：${relationTypeLabel(relation.relation_type)}`);
+        return;
       }
+      const meta = relationTypeMeta(relation.relation_type);
+      const hierarchy = isHierarchyRelation(relation);
+      const source = relation.source && typeof relation.source === 'object' ? relation.source : {};
+      const sourceText = [SOURCE_LABEL[source.type] || safeText(source.type, ''), source.ref ? safeText(source.ref, '') : '', source.note ? safeText(source.note, '') : '']
+        .filter(Boolean)
+        .join(' · ') || '—';
+      const hierarchyText = hierarchy
+        ? (classifyHierarchyRelation(relation, null) === 'parent' ? '层级：子 Agent 会话 → 父记忆' : '层级：父记忆 → 子 Agent 会话')
+        : null;
+      const subtitleParts = [`关系 ${safeText(relation.id)}`, `v${relation.version ?? '?'}`];
+      if (hierarchy) subtitleParts.push(hierarchyRelationLabel(relation));
+      ctx.detail.show({
+        title: `${hierarchy ? hierarchyRelationLabel(relation) : meta.label}${relation.label && !hierarchy ? ` · ${safeText(relation.label, '')}` : ''}`,
+        subtitle: subtitleParts.join(' · '),
+        testid: 'relation-detail',
+        content: (host) => {
+          const wrap = el('div', { class: 'view-rel__detail', 'data-testid': 'relation-detail-body' });
+
+          // 两端节点（可点击跳转：记忆 → 编辑器/详情；实体 → 实体关系）
+          wrap.append(el('div', { class: 'view-rel__detail-section-title', text: '两端节点' }));
+          wrap.append(
+            el('div', { class: 'view-rel__detail-endpoints' }, [
+              renderNodeChip(relation.from, relation.relation_type),
+              el('span', { class: 'view-rel__arrow', text: relation.directed === false ? '↔' : '→' }),
+              renderNodeChip(relation.to, relation.relation_type),
+            ]),
+          );
+
+          if (hierarchyText) {
+            wrap.append(
+              el('div', { class: 'view-rel__detail-hierarchy', 'data-testid': 'relation-detail-hierarchy' }, [
+                icon('relation', { size: 13 }),
+                el('span', { text: hierarchyText }),
+              ]),
+            );
+          }
+
+          const rows = [
+            ['关系类型', `${hierarchy ? '子 Agent 层级' : meta.label}（${safeText(relation.relation_type)}）`],
+            ['方向', relation.directed === false ? '无向（双向）' : '有向（起点 → 终点）'],
+            ['置信度', safeText(relation.confidence)],
+            ['权重', safeText(relation.weight)],
+            ['来源', sourceText],
+            ['evidence', safeText(relation.evidence)],
+            ['创建时间', formatTime(relation.created_at)],
+            ['更新时间', formatTime(relation.updated_at || relation.created_at)],
+            ['关系 ID', safeText(relation.id)],
+            ['版本', `v${relation.version ?? '?'}`],
+            ['状态', relation.deleted_at ? `已删除（${formatTime(relation.deleted_at)}）` : '有效'],
+          ];
+          for (const [label, value] of rows) {
+            wrap.append(el('div', { class: 'view-rel__detail-row' }, [el('span', { class: 'view-rel__label', text: label }), el('span', { class: 'view-rel__value', text: value })]));
+          }
+          host.append(wrap);
+          return wrap;
+        },
+        actions: [
+          ...(hierarchy
+            ? [
+                { label: '打开端点记忆', icon: 'file', variant: 'secondary', testid: 'relation-detail-open-memory', onClick: () => openRelationEndpoints(relation) },
+              ]
+            : []),
+          { label: '关闭', variant: 'secondary', testid: 'relation-detail-close', onClick: () => ctx.detail.clear && ctx.detail.clear() },
+        ],
+      });
     } catch (err) {
       notify('error', `打开关系详情失败：${errInfo(err).message}`);
     }
+  }
+
+  /** 打开层级关系两端的记忆/实体（父或子均可） */
+  function openRelationEndpoints(relation) {
+    const nodes = [relation.from, relation.to].filter((node) => node && node.id);
+    const memoryNode = nodes.find((node) => node.kind === 'memory');
+    if (memoryNode) {
+      navigate('editor', { id: memoryNode.id });
+      return;
+    }
+    const entityNode = nodes.find((node) => node.kind === 'entity');
+    if (entityNode) {
+      openNodePickerWith({ kind: 'entity', id: entityNode.id });
+      return;
+    }
+    notify('warn', '该关系没有可打开的端点（记忆/实体）');
   }
 
   function openDialog(opts) {
@@ -1258,5 +1336,11 @@ const REL_CSS = `
 .view-rel__field--wide { grid-column:1/-1; }
 .view-rel__detail { display:flex; flex-direction:column; gap:var(--fca-space-2); font-size:var(--fca-text-sm); }
 .view-rel__detail-row { display:flex; flex-direction:column; gap:2px; }
+.view-rel__detail-row .view-rel__label { font-size:var(--fca-text-2xs); letter-spacing:var(--fca-tracking-wide); text-transform:uppercase; color:var(--fca-text-faint); }
+.view-rel__value { color:var(--fca-text-dim); word-break:break-word; user-select:text; }
+.view-rel__detail-section-title { margin-top:var(--fca-space-1); font-size:var(--fca-text-2xs); font-weight:600; letter-spacing:var(--fca-tracking-wide2); text-transform:uppercase; color:var(--fca-text-faint); }
+.view-rel__detail-endpoints { display:flex; align-items:center; flex-wrap:wrap; gap:var(--fca-space-2); padding:var(--fca-space-2); border:1px solid var(--fca-border); border-radius:var(--fca-radius-sm); background:var(--fca-bg-1); }
+.view-rel__detail-hierarchy { display:flex; align-items:center; gap:6px; padding:5px 8px; border:1px solid rgba(160,140,240,.35); border-radius:var(--fca-radius-sm); background:rgba(160,140,240,.08); color:var(--fca-violet); font-size:var(--fca-text-xs); }
+.view-rel__tag--violet { color:var(--fca-violet); border-color:rgba(160,140,240,.35); }
 @media (max-width: 900px) { .view-rel__node-grid, .view-rel__form-grid { grid-template-columns:1fr; } }
 `;

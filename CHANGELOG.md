@@ -2,6 +2,21 @@
 
 本项目遵循语义化版本：`MAJOR.MINOR.PATCH`。Alpha 阶段允许小版本内调整内部实现，但 `docs/PUBLIC_INTERFACE_FREEZE.md` 的公共契约只能由 Lead 审核后变更并记录于下。
 
+## [0.3.0] — 2026-11-13（子 Agent 记忆层级 / Unity 双向选中 / 桌面 UI 修复 / 插件 0.3.1）
+
+### 新增
+
+- **Unity 星云层级可视化**：点击父 Agent思考节点展开/收起子 Agent 会话节点（轨道展开 + 层级光丝 + HUD 子节点计数）；旋臂-节点-连线几何一致性修复（shader 展开角、节点径向分布共享臂宽、同臂光丝沿螺旋走线、跨臂低亮）。
+- **Unity ↔ Electron 双向选中同步**：Unity 点选记忆 → 右侧详情面板打开；列表/搜索/详情选中记忆 → Unity 高亮；模板命令通道 + `postMessage` 契约（`fca-unity-select` / `fca-unity-command`）。
+- **桌面 UI 修复**：关系详情面板正确渲染（修复 `Cannot read properties of undefined (reading 'append')` 与 `[object Object]`，端点可跳转）；左右栏常驻开关（顶栏 `btn-toggle-left/right`，Ctrl+B / Ctrl+J，收起后仍可展开）；记忆详情新增「子 Agent 记忆（N）」折叠区块与关系探索父子关系标记。
+- **DSH 插件 v0.3.1**（随安装包 tgz）：自动记忆时间戳（`occurred_at`/precision=exact）；子 Agent 会话全量采集（spawn/推理/工具/结论聚合为子会话记忆，父子 tags/relations）；上下文压缩恢复工具 `fca_memory_context`；子会话 user-role 过滤与噪声清理、限流/去重。`engines.fcaRuntime` 仍 `>=0.1.0 <0.2.0`。
+- **Runtime**：EPIPE 死循环修复（v0.2.1 累积）+ 日志单文件 64MB 轮转，防止日志刷到 GB 级。
+
+### 变更
+
+- 产品版本号统一：root `package.json`、`desktop/package.json`、安装包 = **0.3.0**；插件 = **0.3.1**；Runtime/API 保持 0.1.0 / v1（接口未变）。
+- 安装包 payload：desktop 增加 `renderer/lib/{hierarchy.js,unity-selection.js}` 与 UI 修复；Unity WebGL 使用新构建（几何/层级/桥接）；dsh_plugin tgz 升级到 0.3.1（68,625 B）；新增构建期 UI 修复断言与安装期校验。
+- `docs/USER_MANUAL.md` 修正为 Unity WebGL 内嵌（移除旧 standalone 描述）+ v0.3.0 层级/双向选中说明。
 ## [0.2.1] — 2026-11-12（Runtime 稳定性修复：EPIPE 死循环 / 启动超时）
 
 ### 修复
@@ -49,6 +64,22 @@
 - 其余既有已知问题见 `docs/KNOWN_ISSUES.md`。
 
 ---
+## [DSH 插件 0.3.1] — 2026-11-13（父子 tag id8 规范化修复）
+
+- **修复**：部分子会话记忆的 `parent-session:` / `subagent-session:` / `children:` tag 对 `session-<uuid>` 形式的父会话 id 直接取前 8 位，得到无意义的 `parent-session:session-`（真实 graph 发现：`mem_cfd58ede…`、`mem_efe91a48…`），会使 Unity/桌面层级匹配挂错。修复 `src/session-scope.js` 的 `sessionId8`：对象引用取 `.sessionId`/`.session_id`/`.id`；字符串去掉 `session-` 前缀后取 8 位（如 `session-d9ea76db-0089-…` → `d9ea76db`）；`children:*`/`subagent-session:*`/`parent-session:*` 与 source.note 全部使用规范化结果。
+- **可观测**：`fca_status` 新增 `tagNormalization{rule,failed,subagentFailed,relationFailed}` 与 `subagentSessions.counters.idNormalizeFailed`、`relations.counters.idNormalizeFailed`，规范化失败不再静默。
+- **验证**：单测新增 `sessionId8('session-d9ea76db-…')==='d9ea76db'`、对象 `.sessionId/.id` 提取、`children` 去重与父会话 tag 规范化为 8 位；33/33 PASS。真实子代理会话复测 tag 为 `parent-session:<8位hex>` 且父子关系照常建立；对已入库的 2 条旧异常 tag 记忆做 PATCH 修复（仅改 tags）。
+- **交付**：插件 `0.3.1`，包 `artifacts/plugin/dsh-plugin-fca-memory-0.3.1.tgz`；新目录 remove+install（不重启 DSH），`fca_status.plugin.version=0.3.1`。
+
+## [DSH 插件 0.3.0] — 2026-11-13（记忆时间戳 + 子 Agent 全量记忆 + 父子层级 + 上下文恢复）
+
+- **自动记忆时间戳**：所有自动写入记忆（根会话用户消息、Agent思考节点、子 Agent 会话）补 `occurred_at`（ISO，取真实 DSH 事件时间：消息事件时间/回合开始时间/子会话首条事件时间）与 `occurred_precision="exact"`；界面不再显示"发生时间未知"（旧记忆不迁移）。新增 `src/time.js`。
+- **子 Agent 会话全量采集**：新增 `autoMemorySubagentCapture`（`off`/`summary`，bundle 默认 `summary`）。对 child/subagent 会话按 `session+turn` 聚合 **1 条 episodic 记忆**：spawn prompt（任务）+ assistant reasoning/text + tool/call 参数摘要 + tool/result 结果摘要 + 结论；title=`子 Agent 会话 · <workspaceLabel> · <childId8>`；tags=`Agent子会话`、`subagent-session:<childId8>`、`parent-session:<parentId8>`、`workspace:<label>`、`DSH会话`；body 分节【任务】/【关键推理】/【工具执行】/【结果】/【结论】；importance 0.5；去重 session+turn、独立每小时限流、正文 ≤12000 字、工具 ≤12 条。根会话的 Agent思考节点保持 procedural（不重复采集子会话）。
+- **父子层级**：父会话通过真实 `subagent/catalog` 事件（`data.childId`）记录该回合 spawn 的子会话，父 Agent思考节点 tags 为**每个子会话追加一个独立** `children:<childId8>`；父记忆 → 子会话记忆写入 Runtime 关系（`POST /api/v1/relations`，`relation_type="custom"`、`label="spawned_subagent"`、directed/confidence/weight=1、source=agent；`custom` 被拒自动回退 `derived_from` 并计数），并为子记忆 PATCH 追加兜底 tag `parent-memory:<父memoryId>`；关系失败不阻塞记忆写入、计数与 lastError 如实上报。
+- **上下文压缩恢复**：新增工具 `fca_memory_context`（workspace/limit/turnLimit/subagentLimit/decisionLimit → 最近记忆、Agent思考节点、子 Agent 会话摘要、关键决策，均含 occurred_at）；新增 `autoMemoryContextRecovery`（bundle 默认 true）：通过真实 `systemPrompt.section` 常驻注入"压缩后/记不清时必须先调用 fca_memory_context"规则，并通过 `systemPrompt.context` 在真实 `compaction/end` 事件后向该会话渲染压缩时间/次数/摘要开头的恢复提醒，模型调用 `fca_memory_context` 后自动清除。限制：插件不自行触发压缩；提醒是提示注入而非强制工具调用。
+- **交付**：插件 `0.3.0`；交付包 `artifacts/plugin/dsh-plugin-fca-memory-0.3.0.tgz`（67,846 B，22 文件，SHA256 `C5E7835E97968353983460F8B263F625478726F25190FB4CDC84DB0F27EB367B（修复版 67,942 B；随后升级为 0.3.1）`）；新目录 `.cache/plugin-relink-v030/package` remove+install（`application:"applied"`，version 0.3.0，未重启 DSH）；`fca_status` 报 0.3.0 且新增 `subagentSessions`/`relations`/`compactions`/`recovery` 计数；真实子代理会话聚合记忆与父子关系/children tags 见 `docs/PLUGIN_INTEGRATION_TEST.md` §12 证据。
+- **测试**：`tests/unit/plugin/plugin-pure.test.js` 扩至 **32 个用例全部通过**（时间戳、子会话全量聚合、契约 tags、children 独立 tag、父子关系 custom/fallback/parent-memory tag、compaction→恢复状态→工具清除、fca_memory_context 构造、systemPrompt 注册与动态渲染）。
+
 ## [DSH 插件 0.2.1] — 2026-11-12（子会话 user-role 消息过滤 + 噪声清理）
 
 - **问题**：v0.2.0 后 Runtime 出现 3 条标题为 teammate 启动提示词的 episodic 记忆。真实会话日志确认根因：subagent/teammate 的 spawn prompt 由 Host 以普通 `user/message`（`data.source.kind="user"`）下发，而旧过滤只检查 `source.kind`；真实 DSH `SessionHeader` 明确带 `parentSession` / `origin:"subagent"` / `delegationDepth` 可区分根会话与子会话。
@@ -141,3 +172,5 @@
 - 自定义数据目录时菜单“打开数据目录/日志目录”仍打开默认目录（KI-FUNC-01，规避：用设置页按钮）。
 - 10000 节点下 Runtime 布局/图数据为同步计算（秒级），Alpha 0.1 可交互规模为 ≤1000 节点（KI-PERF-01）。
 - 安全风险项：ZIP 导入无解压上限（KI-SEC-01）、导出/导入路径未限制（KI-SEC-02）、无限流（KI-SEC-03）、CORS `*`（KI-SEC-04）。均为本机回环场景记录项，详见 `docs/KNOWN_ISSUES.md`。
+
+

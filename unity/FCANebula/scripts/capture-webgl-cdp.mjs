@@ -32,6 +32,8 @@ function parseArgs(argv) {
     views: '0,1,2',
     labels: '0',
     emulation: '0',
+    hierarchy: '1',
+    selection: '1',
     manifestExtra: ''
   };
   for (let i = 0; i < argv.length; i++) {
@@ -49,6 +51,8 @@ function parseArgs(argv) {
       case '--views': args.views = value; i++; break;
       case '--labels': args.labels = value; i++; break;
       case '--emulation': args.emulation = value; i++; break;
+      case '--hierarchy': args.hierarchy = value; i++; break;
+      case '--selection': args.selection = value; i++; break;
       case '--manifest-extra': args.manifestExtra = value; i++; break;
       default: break;
     }
@@ -166,15 +170,21 @@ async function fetchJson(url, timeoutMs) {
 
 async function findPageTarget(port) {
   const deadline = Date.now() + 30000;
+  let lastTargets = [];
   while (Date.now() < deadline) {
     try {
       const targets = await fetchJson(`http://127.0.0.1:${port}/json/list`, 3000);
-      const page = (targets || []).find((t) => t.type === 'page' && t.webSocketDebuggerUrl);
+      lastTargets = targets || [];
+      // Only use the blank page this Edge instance started with (other debugging endpoints
+      // on the machine can expose unrelated pages such as dsh://host).
+      const page = lastTargets.find((t) => t.type === 'page' && t.webSocketDebuggerUrl
+        && (t.url === 'about:blank' || t.url === '' || t.url.startsWith('data:text/html')));
       if (page) return page;
     } catch (e) { /* browser still starting */ }
     await sleep(300);
   }
-  throw new Error('Edge DevTools endpoint not available on port ' + port);
+  throw new Error('Edge DevTools endpoint not available on port ' + port + ' (targets: ' +
+    lastTargets.map((t) => t.url).join(', ') + ')');
 }
 
 function killProcessTree(proc) {
@@ -226,6 +236,9 @@ async function main() {
   const startedAt = new Date();
   let state = null;
   let viewportActual = '';
+  let selectionTest = null;
+  let hierarchyBeforeState = null;
+  let hierarchyAfterState = null;
 
   try {
     const target = await findPageTarget(debugPort);
@@ -298,6 +311,77 @@ async function main() {
       console.log('[cdp] captured', file, buffer.length, 'bytes');
     }
 
+    // ---- task-17: selection bridge (page -> Unity command, Unity -> page event) ----------
+    try {
+      if (args.selection !== '1') {
+        selectionTest = { skipped: true };
+      } else {
+      const selProbe = await cdp.evaluate('JSON.stringify(window.__FCA_NEBULA_STATE__ || null)');
+      const selState = selProbe.ok && selProbe.value ? JSON.parse(selProbe.value) : null;
+      const sampleId = selState ? selState.sampleNodeId : '';
+      await cdp.evaluate('(function(){ window.__FCA_SELECT_EVENTS__=[]; window.addEventListener("fca-unity-select", function(e){ window.__FCA_SELECT_EVENTS__.push(e.detail); }); return true; })()');
+      if (sampleId) {
+        // page -> iframe command
+        const desired = `select:${String(sampleId).replace(/'/g, '')}`;
+        const commandSent = await cdp.evaluate(`(function(){ try { return !!(window.FCA_NEBULA && window.FCA_NEBULA.postCommand(${JSON.stringify(desired)})); } catch(e) { return false; } })()`);
+        await sleep(900);
+        const selectedProbe = await cdp.evaluate('JSON.stringify({selected: window.__FCA_NEBULA_SELECTED__ || null, events: window.__FCA_SELECT_EVENTS__ || [], state: window.__FCA_NEBULA_STATE__ || null})');
+        const selectionAfter = selectedProbe.ok && selectedProbe.value ? JSON.parse(selectedProbe.value) : null;
+        // page -> iframe clear
+        const clearSent = await cdp.evaluate('(function(){ try { return !!(window.FCA_NEBULA && window.FCA_NEBULA.postCommand("select:clear")); } catch(e) { return false; } })()');
+        await sleep(700);
+        const clearedProbe = await cdp.evaluate('JSON.stringify({selected: window.__FCA_NEBULA_SELECTED__ || null, events: window.__FCA_SELECT_EVENTS__ || []})');
+        const cleared = clearedProbe.ok && clearedProbe.value ? JSON.parse(clearedProbe.value) : null;
+        selectionTest = {
+          requestedId: String(sampleId),
+          commandSent: !!(commandSent.ok && commandSent.value),
+          selected: selectionAfter ? selectionAfter.selected : null,
+          eventCount: selectionAfter && selectionAfter.events ? selectionAfter.events.length : 0,
+          clearCommandSent: !!(clearSent.ok && clearSent.value),
+          cleared: cleared ? cleared.selected : null,
+          passed: !!(selectionAfter && selectionAfter.selected && selectionAfter.selected.id === String(sampleId)
+            && selectionAfter.events && selectionAfter.events.length >= 1
+            && cleared && cleared.selected && cleared.selected.selected === false)
+        };
+        console.log('[cdp] selection bridge test:', JSON.stringify(selectionTest));
+      } else {
+        selectionTest = { requestedId: '', passed: false, error: 'no sampleNodeId in state' };
+      }
+      }
+    } catch (e) {
+      selectionTest = { passed: false, error: e.message };
+      console.warn('[cdp] selection bridge test failed:', e.message);
+    }
+
+    // ---- task-14: hierarchy expand before/after -------------------------------------
+    if (args.hierarchy === '1') {
+      const stateProbe = await cdp.evaluate('JSON.stringify(window.__FCA_NEBULA_STATE__ || null)');
+      try { hierarchyBeforeState = stateProbe.ok && stateProbe.value ? JSON.parse(stateProbe.value) : null; } catch (e) { hierarchyBeforeState = null; }
+      const parentCount = hierarchyBeforeState ? (hierarchyBeforeState.hierarchyParents || 0) : 0;
+      if (parentCount > 0) {
+        await cdp.evaluate(`(function(){ try { return !!(window.FCA_NEBULA && window.FCA_NEBULA.setView(1)); } catch(e) { return false; } })()`);
+        await cdp.evaluate('(function(){ try { return !!(window.FCA_NEBULA && window.FCA_NEBULA.postCommand("collapse:all")); } catch(e) { return false; } })()');
+        await cdp.evaluate(`(function(){ try { return !!(window.FCA_NEBULA && window.FCA_NEBULA.postCommand('labels:1')); } catch(e) { return false; } })()`);
+        await sleep(Math.max(1200, args.settleMs));
+        writeFileSync(join(outDir, 'webgl-hierarchy-before.png'), await cdp.screenshot());
+        console.log('[cdp] captured hierarchy-before');
+
+        const parentId = hierarchyBeforeState.hierarchyParentId || '';
+        const expandExpr = parentId
+          ? `(function(){ try { return !!(window.FCA_NEBULA && window.FCA_NEBULA.postCommand('expand:${String(parentId).replace(/'/g, '')}')); } catch(e) { return false; } })()`
+          : '(function(){ try { return !!(window.FCA_NEBULA && window.FCA_NEBULA.postCommand("togglefirst")); } catch(e) { return false; } })()';
+        const expanded = await cdp.evaluate(expandExpr);
+        console.log('[cdp] expand command applied=', expanded.ok && expanded.value, 'parentId=', parentId);
+        await sleep(Math.max(1800, args.settleMs + 800));
+        writeFileSync(join(outDir, 'webgl-hierarchy-after.png'), await cdp.screenshot());
+        console.log('[cdp] captured hierarchy-after');
+        const afterProbe = await cdp.evaluate('JSON.stringify(window.__FCA_NEBULA_STATE__ || null)');
+        try { hierarchyAfterState = afterProbe.ok && afterProbe.value ? JSON.parse(afterProbe.value) : null; } catch (e) { hierarchyAfterState = null; }
+      } else {
+        console.warn('[cdp] no hierarchy data in Runtime graph yet (hierarchyParents=0); skipping expand screenshots');
+      }
+    }
+
     const finalState = await cdp.evaluate('JSON.stringify(window.__FCA_NEBULA_STATE__ || null)');
     if (finalState.ok && finalState.value) {
       try {
@@ -315,6 +399,25 @@ async function main() {
     killProcessTree(edge);
   }
 
+  // Merge with an existing manifest so per-view runs (separate processes) accumulate data.
+  let previousManifest = null;
+  try {
+    previousManifest = JSON.parse(readFileSync(join(outDir, 'webgl-shots-manifest.json'), 'utf8'));
+  } catch (e) { previousManifest = null; }
+  if (previousManifest) {
+    const selectionSkipped = !selectionTest || selectionTest.skipped;
+    if (selectionSkipped && previousManifest.selection_test && previousManifest.selection_test.passed) {
+      selectionTest = previousManifest.selection_test;
+    }
+    if (!hierarchyBeforeState && previousManifest.hierarchy) {
+      hierarchyBeforeState = previousManifest.hierarchy.before || null;
+      hierarchyAfterState = previousManifest.hierarchy.after || null;
+    }
+    if ((!state || !state.chainCount) && previousManifest.diagnostics) {
+      // keep previous chain diagnostics when this run is a partial view capture
+    }
+  }
+
   const buildInfoPath = resolve(args.out, '..', 'FCANebulaWebGL', 'fca-webgl-build-info.json');
   let buildInfo = null;
   try { buildInfo = JSON.parse(readFileSync(buildInfoPath, 'utf8')); } catch (e) { /* optional */ }
@@ -323,7 +426,7 @@ async function main() {
   try {
     const { readdirSync } = await import('node:fs');
     for (const entry of readdirSync(outDir)) {
-      if (/^webgl-view-\d+\.png$/.test(entry)) {
+      if (/^webgl-(view-\d+|hierarchy-(before|after))\.png$/.test(entry)) {
         const full = join(outDir, entry);
         if (!files.includes(full)) files.push(full);
       }
@@ -357,7 +460,31 @@ async function main() {
       volume_material_ok: state.volumeMaterialOk,
       arm_count_uniform: state.armCountUniform,
       emission_scale: state.emissionScale,
-      march_steps: state.marchSteps
+      march_steps: state.marchSteps,
+      visible_nodes: state.visibleNodes,
+      align_mean_width: state.alignMeanWidth,
+      align_p95_width: state.alignP95Width,
+      align_max_width: state.alignMaxWidth,
+      hierarchy_parents: state.hierarchyParents,
+      hierarchy_children: state.hierarchyChildren,
+      hierarchy_expanded_parents: state.hierarchyExpandedParents,
+      hierarchy_visible_children: state.hierarchyVisibleChildren,
+      hierarchy_parent_id: state.hierarchyParentId,
+      hierarchy_parent_label: state.hierarchyParentLabel,
+      hierarchy_parent_child_count: state.hierarchyParentChildCount,
+      chain_count: state.chainCount,
+      chain_multi_node_count: state.chainMultiNodeCount,
+      cross_workspace_chain_count: state.crossWorkspaceChainCount,
+      chain_signature: state.chainSignature,
+      chain_same_arm_all: state.chainSameArmAll,
+      chain_summary: state.chainSummary,
+      sample_node_id: state.sampleNodeId,
+      selected_node_id: state.selectedNodeId
+    } : null,
+    selection_test: selectionTest,
+    hierarchy: (hierarchyBeforeState || hierarchyAfterState) ? {
+      before: hierarchyBeforeState,
+      after: hierarchyAfterState
     } : null,
     files,
     note: manifestExtra && manifestExtra.note ? manifestExtra.note : 'FCA Nebula WebGL 真实 Runtime 数据截图（headless Edge + SwiftShader）。'

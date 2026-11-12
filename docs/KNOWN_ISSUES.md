@@ -1,8 +1,8 @@
-# FCA Memory Atlas 已知问题与限制（v0.2.1）
+# FCA Memory Atlas 已知问题与限制（v0.3.0）
 
-- 版本：v0.2.1（桌面/Runtime/安装包 0.2.1；DSH 插件 0.2.1；Runtime API v1）
+- 版本：v0.3.0（桌面/Runtime/安装包 0.3.0；DSH 插件 0.3.1；Runtime API v1）
 - 更新：2026-11-12
-- 适用范围：安装版桌面软件（`FCA-Memory-Atlas-Setup-0.2.1-x64.exe`，含 Unity 星云组件）+ 随包 FCA Local Runtime + DSH 插件
+- 适用范围：安装版桌面软件（`FCA-Memory-Atlas-Setup-0.3.0-x64.exe`，含 Unity 星云组件）+ 随包 FCA Local Runtime + DSH 插件
 - 来源：交付实测（`docs/INSTALL_TEST.md`、`artifacts/reports/install-*.json`、`artifacts/unity/*`、`artifacts/plugin/*`）+ QA 自动化测试（`docs/TEST_REPORT.md`、`artifacts/reports/security.json` 等）。
 
 级别说明：**高**=影响可用性/数据安全；**中**=影响部分功能或体验；**低**=边界问题；**信息**=设计限制/契约未覆盖，当前版本接受。
@@ -19,6 +19,46 @@
 - 根因：Runtime 的 stdout/stderr 管道随父进程关闭；logger 写 stderr 触发异步 `'error'` 事件（EPIPE）无人监听 → uncaughtException → handler 再写日志 → 再次 EPIPE，无限循环占满事件循环。
 - 修复：`runtime/src/runtime.js` + `runtime/src/logging/index.js`（忽略 EPIPE、控制台断开后仅写文件日志）；`desktop/main/runtime-manager.js`（子进程退出即快速失败，不再空等 30s）。
 - 回归：`runtime/test/logger-epipe.test.js` + `.cache/audit/verify-epipe-fix.mjs`（管道关闭后 6 次 /health 全部 200、0 条 EPIPE 日志）+ `scripts/verify.js` 23/23。
+
+## v0.3 桌面 UI 修复（task-16，2026-11-13，待随下一版发布）
+
+### KI-FIX-02 [已修复] 关系详情打不开 + 详情面板出现 `[object Object]`
+
+- 现象：进入“关系探索”点任意“查看”→ toast `打开关系详情失败：Cannot read properties of undefined (reading 'append')`，右侧详情只剩残缺 `关系 rel_… · v1[object Object]`。
+- 根因：`desktop/renderer/lib/detail-panel.js` 的 `showCustom(payload)`：
+  1. 对函数式 `content` 调用 `content()` 时**未传 host 容器**（relations/search 的 content 都是 `(host) => { host.append(...) }` → host undefined 抛错）；
+  2. `actions` 描述对象被直接当作 DOM children 渲染 → 文本化成 `[object Object]`。
+- 修复：`showCustom` 创建真实 host 容器并传入 content（返回值自动挂载/兼容 Node/字符串/cleanup），action 描述（label/variant/icon/onClick/closeOnClick/testid）渲染为真实按钮；`relations.js showRelationDetail()` 补齐完整字段（两端节点可点击跳转、关系类型、方向、置信度、权重、来源 ref/note、evidence、创建/更新时间、ID、版本、状态），对象字段统一安全转文本；全局搜索详情同样恢复。
+- 验证：CDP 前后对比（修复前 `artifacts/reports/desktop-ui/before-relation-detail-error.png` 可见错误 toast；修复后 `after-relation-detail.png` 完整渲染）；`artifacts/reports/desktop-ui/after-fix-report.json` 18 项断言全部 PASS（无 `[object Object]`、无错误 toast、两端节点/字段/关闭按钮齐全、端点跳转编辑器成功）。
+
+### KI-FIX-03 [已修复] 侧边栏收起后无法重新展开（无入口）
+
+- 现象：`#btn-collapse-left/right` 原本位于面板内部，`applyLayout()` 给面板加 `is-collapsed`（width:0/overflow:hidden）后按钮被裁剪；用户收起面板后再无入口展开（重启后若持久化为收起同样无法恢复）。
+- 修复：`desktop/renderer/index.html` 顶栏新增**常驻** `#btn-toggle-left/#btn-toggle-right`（aria-pressed/状态点/tooltip 含快捷键）；面板收起时窗口左右边缘显示**竖向展开把手** `#edge-handle-left/right`（hover 高亮，点击展开）；`app.js applyLayout()` 统一同步按钮/把手/aria 状态；快捷键 **Ctrl+B / Ctrl+J**；原生菜单“视图 → 显示/隐藏左栏/右栏”同步加速键；布局状态仍由 localStorage 持久化并在启动时正确恢复。
+- 验证：CDP 收起→边缘把手可见（宽高>0）→点击展开→右栏 Ctrl+J 收起/把手展开→localStorage `fca.ui.layout.v1.left.collapsed=true` 持久化，全部 PASS；截图 `artifacts/reports/desktop-ui/after-panels-collapsed-with-toggles.png`、`after-panels-expanded.png`。
+
+### KI-FEAT-01 [信息] 子 Agent 会话层级展示（配合插件 v0.3）
+
+- 数据契约（Lead 确认，与 memory-pipeline/Unity 共用）：子会话记忆 tags `Agent子会话`、`subagent-session:<childId8>`、`parent-session:<parentId8>`、`parent-memory:<parentMemoryId>`；父记忆 tags 每个子会话一个 `children:<childId8>`；关系 from=父记忆→to=子会话记忆、`relation_type=custom` + `label=spawned_subagent`（API 拒绝则 `derived_from`）。
+- 实现：`desktop/renderer/lib/hierarchy.js`（纯函数解析 tags/relations、短 id 解析、方向判定、可读标签）；详情面板“子 Agent 记忆（N）”可展开列表（父记忆显示 children；子记忆显示父记忆与父会话提示），懒加载子记忆标题/类型/时间/摘要，点击打开对应记忆；关系探索对层级关系显示“子 Agent 层级”徽标与可读标签，关系详情显示“层级：父记忆 → 子 Agent 会话”并可打开端点记忆。
+- 状态：**插件 v0.3 真实层级数据尚未落库**；已用 mock API 完成 UI 自测并明确标注（截图 `artifacts/reports/desktop-ui/after-hierarchy-parent-expanded.png`、`after-relations-hierarchy.png`，报告中 `mock` 字段注明仅 UI 自测不可作交付证据）。真实数据到位后需重跑 CDP 截图回归。
+- 限制：若只有 `parent-session:<id8>`、`parent-memory` 尚未写入，则无法解析到父记忆详情，UI 显示“未索引子会话”提示（不伪造跳转）。
+
+### KI-FIX-04 [已修复] Unity 星云选中节点未同步右侧详情面板（双向）
+
+- 现象：Unity 星云内点开记忆节点，Electron 右侧详情面板无变化；反方向在列表/搜索选中记忆，Unity 星云也不高亮（用户原话“右方侧边栏无法同步显示已打开节点详情”）。
+- 根因：① Unity WebGL 桥只有 ready/state，无选择事件（`fca-unity-select`）；② 页面→Unity 只有页内 `FCA_NEBULA.postCommand`，跨源 iframe 下 Electron 无法直接调用；③ atlas 视图 Unity 引擎分支没有监听 store selection，也没有收到选择消息后的右栏联动/自动展开。
+- 修复：
+  - desktop：新增 `desktop/renderer/lib/unity-selection.js`（纯函数解析/防回声/节流/命令构造）；`atlas.js onUnityMessage` 处理 `fca-unity-select`（memory/entity → `actions.openMemory(id,{focus:false})`，右栏收起时 `ctx.detail.setOpen(true)`，同 id/回声/重复事件忽略）；监听 store selection → `iframe.postMessage({type:'fca-unity-command',command:'select:<id>|select:clear'},'*')`（同源时优先直接 `FCA_NEBULA.postCommand`）；iframe ready / 引擎切换 / reload 后重放当前选中；处理 `fca-unity-command-ack`。
+  - unity-renderer：`FCABridge_NotifySelect` + `WebGLBridge.NotifySelection`（`fca-unity-select`，含 id/kind/title/memoryType/arm/importance/selected/clear）与模板 parent message 命令通道 + ack（新 WebGL 构建 `built_at_utc 2026-11-12T16:46:44Z` 已包含）。
+- 验证：CDP 真实 app（开发版 + 新 WebGL 构建）— Unity 侧执行真实 `select` → Unity NotifySelect → Electron 右栏同步（标题/正文/类型；`artifacts/reports/desktop-ui/after-real-unity-select-sync.png`）；Electron `openMemory` → iframe 收到命令 → Unity HUD 选中卡片 + 回推选择（`after-real-bidirectional-sync.png`）；右栏收起时 Unity 选中自动展开；重复事件去重；`select:clear` 双向；引擎切换后重放选中。报告 `artifacts/reports/desktop-ui/real-sync-report.json`（8 项 PASS）、`after-sync-report.json`（10 项 PASS）；单测 `tests/unit/desktop/unity-selection.test.js` 12 例。
+
+### KI-FIX-05 [已修复] 切换星云引擎设置后主进程 Runtime 状态被误报 stopped（附带发现）
+
+- 现象：运行中把 `nebulaEngine` 从 unity 切到 webgl 再切回 unity 后，Electron 图谱不加载/右栏为空（renderer 认为 Runtime `stopped`），但 `/health` 实际正常。
+- 根因：`desktop/main/runtime-manager.js refreshFromHealth()` 健康检查成功后只更新 status 对象、未更新模块内部 `state`（仍为 `stopped`）；随后 `settings.onChange → refreshSettings()` 用 `makeStatus()` 重建 status，把状态回退成 `stopped`，renderer 不再触发 `connectAndLoad`。
+- 修复：`refreshFromHealth()` 健康成功即 `state = 'running'`（外部 Runtime 采纳后状态一致）。
+- 验证：task-17 CDP 引擎切换重放选中用例 PASS；切换后图谱正常加载（55 节点）且 Unity 回放 `select:<当前选中>`。
 
 ## v0.2.0 新增组件：Unity 星云 / 桌面集成 / 插件 0.2.1
 

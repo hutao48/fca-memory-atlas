@@ -80,8 +80,8 @@ function createMenu(options) {
         { label: '图例（L）', click: command('view:toggle-legend') },
         { label: '刷新图谱', accelerator: 'F5', click: command('view:refresh') },
         { type: 'separator' },
-        { label: '显示/隐藏左栏', click: command('layout:toggle-left') },
-        { label: '显示/隐藏右栏', click: command('layout:toggle-right') },
+        { label: '显示/隐藏左栏', accelerator: 'CmdOrCtrl+B', click: command('layout:toggle-left') },
+        { label: '显示/隐藏右栏', accelerator: 'CmdOrCtrl+J', click: command('layout:toggle-right') },
         {
           label: '布局预设',
           submenu: [

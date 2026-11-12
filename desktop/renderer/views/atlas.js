@@ -13,6 +13,14 @@
  */
 
 import { icon } from '../ui/icons.js';
+import {
+  UNITY_SELECT_MESSAGE,
+  UNITY_COMMAND_ACK_MESSAGE,
+  buildUnityCommandMessage,
+  buildUnitySelectCommand,
+  parseUnitySelectMessage,
+  shouldAcceptUnitySelection,
+} from '../lib/unity-selection.js';
 
 export const meta = { id: 'atlas', title: '星云总览', icon: 'compass', order: 10, nav: true };
 
@@ -63,6 +71,18 @@ export function createView(ctx) {
   let unityStartAt = 0;
   let unityPollTimer = null;
   let toastShownSample = false;
+  // Unity ↔ Electron 选中同步状态（防回声/去重/节流；用于右栏详情联动）
+  let unitySelectionSync = {
+    lastSentCommand: null,
+    lastSentAt: 0,
+    lastAcceptedId: null,
+    lastAcceptedAt: 0,
+    lastAck: null,
+    lastIncomingId: null,
+    pendingReplay: false,
+    ignoredCount: 0,
+    acceptedCount: 0,
+  };
 
   // ------------------------------------------------------------- lifecycle
   async function mount(container) {
@@ -79,6 +99,8 @@ export function createView(ctx) {
     subscribeStore();
     subscribeEvents();
     subscribeUnityEvents();
+    // 初始化 Unity↔Electron 选中同步调试钩子（CDP 验收用）
+    updateUnitySelectionGlobal();
     // 先向主进程查询 Unity 渲染器状态（exe 是否存在/是否在运行），再决定默认引擎：
     // 设置 nebulaEngine=unity 且 exe 可用 → Unity；否则 WebGL 回退（并在视图中明确提示）。
     await refreshUnityStatus();
@@ -508,6 +530,15 @@ export function createView(ctx) {
     const data = event.data;
     if (!data || typeof data !== 'object' || typeof data.type !== 'string') return;
     const payload = data.payload && typeof data.payload === 'object' ? data.payload : data;
+    if (data.type === UNITY_SELECT_MESSAGE) {
+      handleUnitySelection(data);
+      return;
+    }
+    if (data.type === UNITY_COMMAND_ACK_MESSAGE) {
+      unitySelectionSync.lastAck = { command: data.command || (payload && payload.command) || null, ok: payload.ok !== false, at: Date.now() };
+      updateUnitySelectionGlobal();
+      return;
+    }
     if (data.type === UNITY_READY_MESSAGE) {
       unityMessageSeen = true;
       unityFrameLoaded = true;
@@ -545,6 +576,9 @@ export function createView(ctx) {
         toastShownSample = true;
         toast('Unity 星云使用样例数据（非实时 Runtime）', { type: 'warn', duration: 5000 });
       }
+      // iframe/引擎切换后重放当前 Electron 选中，保证 Unity 端高亮与右栏一致
+      unitySelectionSync.lastSentCommand = null;
+      syncSelectionToUnity('unity-ready');
     } else if (data.type === UNITY_STATUS_MESSAGE) {
       // fca-unity-state：运行期状态/统计持续推送（connected/nodes/edges/arms/armSummary/quality/view）
       const stats = { ...(unityStatus && unityStatus.stats ? unityStatus.stats : {}) };
@@ -565,6 +599,121 @@ export function createView(ctx) {
       updateEngineUi();
       updateHud();
     }
+  }
+
+  /* ---------------------------- Unity ↔ Electron 选中同步 ---------------------------- */
+
+  function updateUnitySelectionGlobal() {
+    window.__FCA_UNITY_SELECT__ = () => ({
+      engine,
+      primaryId: (store.getState().selection && store.getState().selection.primaryId) || null,
+      lastSentCommand: unitySelectionSync.lastSentCommand,
+      lastSentAt: unitySelectionSync.lastSentAt,
+      lastIncomingId: unitySelectionSync.lastIncomingId,
+      lastAcceptedId: unitySelectionSync.lastAcceptedId,
+      lastAck: unitySelectionSync.lastAck,
+      iframeReady: unityMessageSeen || (unityFrameLoaded && unityAssetsSeen),
+      pendingReplay: unitySelectionSync.pendingReplay,
+      ignoredCount: unitySelectionSync.ignoredCount,
+      acceptedCount: unitySelectionSync.acceptedCount,
+    });
+  }
+
+  /** 页面 → Unity：跨源 iframe 无法直接调用 FCA_NEBULA，按约定 postMessage 命令；同源时优先直接调用 */
+  function sendUnitySelectionCommand(command, reason) {
+    if (engine !== 'unity') return false;
+    const frame = dom.unityFrame;
+    if (!frame) return false;
+    const win = frame.contentWindow;
+    if (!win) return false;
+    let sent = false;
+    try {
+      if (win.FCA_NEBULA && typeof win.FCA_NEBULA.postCommand === 'function') {
+        sent = win.FCA_NEBULA.postCommand(command) !== false;
+      }
+    } catch {
+      // 跨源访问 contentWindow.FCA_NEBULA 会抛 SecurityError：回退到 postMessage 契约
+      sent = false;
+    }
+    if (!sent) {
+      try {
+        win.postMessage(buildUnityCommandMessage(command), '*');
+        sent = true;
+      } catch {
+        sent = false;
+      }
+    }
+    if (sent) {
+      unitySelectionSync.lastSentCommand = command;
+      unitySelectionSync.lastSentAt = Date.now();
+      log.info('Electron 选中 → Unity', { command, reason: reason || 'sync' });
+    } else {
+      log.warn('向 Unity 发送选中命令失败', { command, reason: reason || 'sync' });
+    }
+    updateUnitySelectionGlobal();
+    return sent;
+  }
+
+  /** Electron 侧 selection 变化 → 同步到 Unity（Unity 引擎且 iframe ready）；未 ready 时标记待重放 */
+  function syncSelectionToUnity(reason) {
+    if (disposed || engine !== 'unity') return;
+    const primaryId = (store.getState().selection && store.getState().selection.primaryId) || null;
+    const command = buildUnitySelectCommand(primaryId);
+    if (command === unitySelectionSync.lastSentCommand) return;
+    const ready = unityMessageSeen || (unityFrameLoaded && unityAssetsSeen);
+    if (!ready) {
+      unitySelectionSync.pendingReplay = true;
+      updateUnitySelectionGlobal();
+      return;
+    }
+    unitySelectionSync.pendingReplay = false;
+    sendUnitySelectionCommand(command, reason);
+  }
+
+  /** Unity 选中节点（或 cancel）→ 右侧详情面板同步 */
+  function handleUnitySelection(data) {
+    if (engine !== 'unity') return;
+    const incoming = parseUnitySelectMessage(data);
+    if (!incoming) return;
+    if (incoming.clear) {
+      // 保留右栏详情避免闪烁：仅记录清空（不 patch store，防止反向 select:clear 抖动）
+      unitySelectionSync.lastIncomingId = null;
+      updateUnitySelectionGlobal();
+      return;
+    }
+    const state = store.getState();
+    const currentPrimaryId = (state.selection && state.selection.primaryId) || null;
+    const verdict = shouldAcceptUnitySelection({
+      incoming,
+      currentPrimaryId,
+      lastSentId: (() => {
+        const command = unitySelectionSync.lastSentCommand;
+        return command && command.startsWith('select:') ? command.slice('select:'.length) : null;
+      })(),
+      lastSentAt: unitySelectionSync.lastSentAt,
+      lastAcceptedId: unitySelectionSync.lastAcceptedId,
+      lastAcceptedAt: unitySelectionSync.lastAcceptedAt,
+    });
+    unitySelectionSync.lastIncomingId = incoming.id;
+    if (!verdict.accept) {
+      unitySelectionSync.ignoredCount += 1;
+      log.info('Unity 选中事件已忽略', { id: incoming.id, kind: incoming.kind, reason: verdict.reason });
+      updateUnitySelectionGlobal();
+      return;
+    }
+    unitySelectionSync.acceptedCount += 1;
+    unitySelectionSync.lastAcceptedId = incoming.id;
+    unitySelectionSync.lastAcceptedAt = Date.now();
+    // 右侧面板收起时自动打开，保证“右方侧边栏同步显示已打开节点详情”
+    if (state.ui && state.ui.right && state.ui.right.collapsed && ctx.detail && typeof ctx.detail.setOpen === 'function') {
+      ctx.detail.setOpen(true);
+    }
+    log.info('Unity 选中节点 → 同步右侧详情', { id: incoming.id, kind: incoming.kind, title: incoming.title || null, arm: incoming.arm || null });
+    actions.openMemory(incoming.id, { focus: false });
+    if (dom.enginePill) {
+      dom.enginePill.title = `Unity 已选中 ${incoming.title || incoming.id}`;
+    }
+    updateUnitySelectionGlobal();
   }
 
   function onUnityStatus(status, source) {
@@ -632,12 +781,22 @@ export function createView(ctx) {
       if (dom.unityBanner) dom.unityBanner.hidden = true;
       setUnityOverlay('loading', '正在启动内嵌 Unity WebGL 服务…');
       await ensureUnityEmbed();
+      // 引擎切换/iframe 重建后重放当前 Electron 选中（Unity HUD 高亮与右栏保持一致）
+      syncSelectionToUnity('engine-unity');
     } else {
       if (dom.unityLayer) dom.unityLayer.hidden = true;
-      if (dom.unityFrame) dom.unityFrame.removeAttribute('src');
+      if (dom.unityFrame) {
+        dom.unityFrame.removeAttribute('src');
+        dom.unityFrame.removeAttribute('data-frame-src');
+      }
+      // 回到 WebGL 后清空 iframe 地址：下次切回 Unity 会重新启动静态服务并重建 iframe（on ready 重放选中）
+      unityFrameUrl = null;
       unityFrameLoaded = false;
       unityAssetsSeen = false;
       unityMessageSeen = false;
+      unitySelectionSync.lastSentCommand = null;
+      unitySelectionSync.pendingReplay = true;
+      updateUnitySelectionGlobal();
       if (canvasHost) canvasHost.hidden = false;
       renderUnityBanner();
       stopUnityPolling();
@@ -706,6 +865,10 @@ export function createView(ctx) {
       unityAssetsSeen = false;
       unityMessageSeen = false;
       unityStartAt = Date.now();
+      // 新 iframe 重新加载：清空已发送记录并标记待重放，ready 后自动 select:<当前选中>
+      unitySelectionSync.lastSentCommand = null;
+      unitySelectionSync.pendingReplay = true;
+      updateUnitySelectionGlobal();
       setUnityOverlay('loading', 'Unity WebGL 加载中…（首次加载需要初始化运行时）');
       try {
         dom.unityFrame.src = unityFrameUrl;
@@ -744,6 +907,7 @@ export function createView(ctx) {
         stopUnityPolling();
         setUnityOverlay(null);
         renderUnityOverlay();
+        syncSelectionToUnity('heuristic-ready');
         return;
       }
       if (elapsed > UNITY_LOAD_TIMEOUT_MS) {
@@ -789,6 +953,8 @@ export function createView(ctx) {
       unityFrameLoaded = false;
       unityAssetsSeen = false;
       unityMessageSeen = false;
+      unitySelectionSync.lastSentCommand = null;
+      updateUnitySelectionGlobal();
       stopUnityPolling();
       setStored(UNITY_USER_CLOSED_KEY, '1');
       setStored(UNITY_FALLBACK_KEY, 'Unity WebGL 已关闭，已回退 WebGL 星云');
@@ -854,6 +1020,8 @@ export function createView(ctx) {
     unityFrameLoaded = false;
     unityAssetsSeen = false;
     unityMessageSeen = false;
+    unitySelectionSync.lastSentCommand = null;
+    unitySelectionSync.pendingReplay = true;
     setStored(UNITY_FALLBACK_KEY, null);
     unityFallbackActive = false;
     await refreshUnityStatus();
@@ -1749,6 +1917,10 @@ export function createView(ctx) {
     unsubs.push(store.select((s) => s.app.view, (view) => {
       if (view === 'atlas') updateHud();
     }));
+    // Electron 选中（列表/搜索/星云/右栏打开记忆）→ 同步 Unity 高亮（Unity 引擎且 iframe ready 时）
+    unsubs.push(store.select((s) => (s.selection ? s.selection.primaryId : undefined), () => {
+      syncSelectionToUnity('selection-store');
+    }));
     // 设置项 nebulaEngine 变化（设置弹窗/引擎菜单/其他窗口）→ 重新解析实际引擎
     unsubs.push(store.select((s) => (s.settings ? s.settings.nebulaEngine : undefined), () => {
       if (disposed) return;
@@ -1794,6 +1966,8 @@ export function createView(ctx) {
           /* ignore */
         }
       }
+      // Unity 引擎：WebGL 实例不存在，改由 iframe 命令通道高亮
+      syncSelectionToUnity('selection-event');
     }));
   }
 
@@ -1818,6 +1992,13 @@ export function createView(ctx) {
         quality: store.getState().ui.quality,
         engine,
         requestedEngine: requestedEngine(),
+        selectionSync: {
+          lastSentCommand: unitySelectionSync.lastSentCommand,
+          lastIncomingId: unitySelectionSync.lastIncomingId,
+          lastAcceptedId: unitySelectionSync.lastAcceptedId,
+          lastAck: unitySelectionSync.lastAck,
+          pendingReplay: unitySelectionSync.pendingReplay,
+        },
         unity: unityStatus
           ? { available: unityStatus.available, mode: unityStatus.mode || 'embedded-webgl', state: unityStatus.state, running: Boolean(unityStatus.running), dir: unityStatus.dir || null, port: unityStatus.port || null, iframeReady: unityMessageSeen || (unityFrameLoaded && unityAssetsSeen), stats: unityStatus.stats || null }
           : null,

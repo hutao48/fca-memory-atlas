@@ -834,3 +834,92 @@
     display: none;
   }
 }
+
+/* ------------------------------------------------------------------ 常驻面板开关 / 收起时边缘展开把手 */
+/* app-body 作为绝对定位容器（把手贴在窗口左右边缘） */
+.app-body {
+  position: relative;
+}
+
+/* 顶栏常驻「显示/隐藏左栏/右栏」按钮：面板收起后仍可见可用 */
+.icon-btn.panel-toggle {
+  position: relative;
+}
+
+.icon-btn.panel-toggle[aria-pressed='false'] {
+  color: var(--fca-text-faint);
+  border-color: rgba(127, 184, 217, 0.14);
+}
+
+.icon-btn.panel-toggle[aria-pressed='false']::after {
+  content: '';
+  position: absolute;
+  top: 6px;
+  right: 5px;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--fca-gold);
+  box-shadow: 0 0 6px rgba(216, 185, 120, 0.8);
+  pointer-events: none;
+}
+
+/* 面板收起时窗口边缘的竖向展开把手（hover 高亮） */
+.edge-handle {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 20;
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 16px;
+  padding: 16px 1px;
+  border: 1px solid var(--fca-border);
+  background: rgba(10, 16, 25, 0.88);
+  color: var(--fca-text-faint);
+  cursor: pointer;
+  backdrop-filter: blur(8px);
+  transition: width var(--fca-dur-fast) var(--fca-ease), color var(--fca-dur-fast) var(--fca-ease),
+    background var(--fca-dur-fast) var(--fca-ease), box-shadow var(--fca-dur-fast) var(--fca-ease);
+}
+
+.edge-handle[hidden] {
+  display: none;
+}
+
+.edge-handle--left {
+  left: 0;
+  border-left: 0;
+  border-radius: 0 var(--fca-radius-lg) var(--fca-radius-lg) 0;
+}
+
+.edge-handle--right {
+  right: 0;
+  border-right: 0;
+  border-radius: var(--fca-radius-lg) 0 0 var(--fca-radius-lg);
+}
+
+.edge-handle:hover,
+.edge-handle:focus-visible {
+  width: 24px;
+  color: var(--fca-accent);
+  background: rgba(16, 26, 40, 0.96);
+  box-shadow: 0 8px 26px rgba(0, 0, 0, 0.45);
+  outline: none;
+}
+
+.edge-handle__chevron {
+  font-size: 15px;
+  line-height: 1;
+}
+
+.edge-handle__label {
+  writing-mode: vertical-rl;
+  text-orientation: mixed;
+  letter-spacing: 0.22em;
+  font-size: var(--fca-text-2xs);
+  color: inherit;
+}
