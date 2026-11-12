@@ -1,7 +1,8 @@
-﻿# DeepSeek Agent 自主安装部署提示词（FCA Memory Atlas）
+# DeepSeek Agent 自主安装部署提示词（FCA Memory Atlas）
 
 > 把本文件全文 + 仓库地址交给 DeepSeek Agent（或任何具备本地命令行执行能力的 Agent），它就能按步骤自主完成安装、初始化、启动、DSH 插件接入与验收。
-> 仓库地址：`https://github.com/hutao48/fca-memory-atlas`（发布后替换为实际地址）
+> 仓库地址：`https://github.com/hutao48/fca-memory-atlas`
+> 预构建安装包（推荐）：`https://github.com/hutao48/fca-memory-atlas/releases/tag/v0.1.0` → `FCA-Memory-Atlas-Setup-0.1.0-x64.exe`
 
 ---
 
