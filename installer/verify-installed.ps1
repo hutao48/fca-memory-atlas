@@ -76,6 +76,18 @@ function Save-Report {
   [System.IO.File]::WriteAllText($ReportPath, $json, (New-Object System.Text.UTF8Encoding($false)))
   Write-Host "[install-verify] report: $ReportPath"
 }
+function Start-ExeWaitDirect {
+  param([string]$FilePath, [string[]]$Arguments = @(), [string]$WorkingDirectory = '')
+  $psi = New-Object System.Diagnostics.ProcessStartInfo
+  $psi.FileName = $FilePath
+  $psi.Arguments = (($Arguments | ForEach-Object { if ($_ -match '\s') { '"' + $_ + '"' } else { $_ } }) -join ' ')
+  $psi.UseShellExecute = $false
+  $psi.CreateNoWindow = $true
+  if ($WorkingDirectory) { $psi.WorkingDirectory = $WorkingDirectory }
+  $proc = [System.Diagnostics.Process]::Start($psi)
+  $proc.WaitForExit()
+  return $proc.ExitCode
+}
 function Remove-SafeDir([string]$Path) {
   $full = [System.IO.Path]::GetFullPath($Path)
   $isRoot = $full.Equals($Root, [System.StringComparison]::OrdinalIgnoreCase)
@@ -126,10 +138,10 @@ Add-Step 'installer-sha256-matches-metadata' ([bool]$report.installer.sha256_ok)
 
 # ---------- 2. silent install
 $sw = [System.Diagnostics.Stopwatch]::StartNew()
-$p = Start-Process -FilePath $InstallerPath -ArgumentList @('/S', "/D=$InstallDir") -Wait -PassThru -WorkingDirectory $Root
+$installExit = Start-ExeWaitDirect -FilePath $InstallerPath -Arguments @('/S', "/D=$InstallDir") -WorkingDirectory $Root
 $sw.Stop()
-$report.results.install = [ordered]@{ command = "`"$InstallerPath`" /S /D=$InstallDir"; exit_code = $p.ExitCode; elapsed_seconds = [math]::Round($sw.Elapsed.TotalSeconds, 1) }
-Add-Step 'silent-install-exit-0' ($p.ExitCode -eq 0) "exit=$($p.ExitCode) elapsed=$($report.results.install.elapsed_seconds)s"
+$report.results.install = [ordered]@{ command = "`"$InstallerPath`" /S /D=$InstallDir"; method = 'CreateProcess (UseShellExecute=false)'; exit_code = $installExit; elapsed_seconds = [math]::Round($sw.Elapsed.TotalSeconds, 1) }
+Add-Step 'silent-install-exit-0' ($installExit -eq 0) "exit=$installExit elapsed=$($report.results.install.elapsed_seconds)s"
 
 # ---------- 3. installed files
 $required = @(
@@ -162,6 +174,14 @@ $unity = [ordered]@{
   bytes = $(if (Test-Path -LiteralPath $unityDir) { (Get-ChildItem -LiteralPath $unityDir -Recurse -File | Measure-Object Length -Sum).Sum } else { 0 })
 }
 $report.results.unity_webgl = $unity
+# EPIPE 稳定性修复（v0.2.1）：安装包内 runtime 源码必须包含修复标记
+$runtimeSrcFile = Join-Path $InstallDir 'runtime\src\runtime.js'
+$loggingFile = Join-Path $InstallDir 'runtime\src\logging\index.js'
+$runtimeSrcText = if (Test-Path $runtimeSrcFile) { [System.IO.File]::ReadAllText($runtimeSrcFile) } else { '' }
+$loggingText = if (Test-Path $loggingFile) { [System.IO.File]::ReadAllText($loggingFile) } else { '' }
+$epipe = [ordered]@{ runtime_isBrokenPipeError = ($runtimeSrcText -match 'isBrokenPipeError'); runtime_epipe_handler = ($runtimeSrcText -match 'EPIPE'); logging_consoleBroken = ($loggingText -match 'consoleBroken') }
+$report.results.epipe_fix = $epipe
+Add-Step 'epipe-fix-in-payload' ($epipe.runtime_isBrokenPipeError -and $epipe.runtime_epipe_handler -and $epipe.logging_consoleBroken) "runtime.js isBrokenPipeError=$($epipe.runtime_isBrokenPipeError) EPIPE=$($epipe.runtime_epipe_handler) logging.consoleBroken=$($epipe.logging_consoleBroken)"
 Add-Step 'unity-webgl-payload-installed' ($unity.index_html -and $unity.wasm -gt 0 -and $unity.data -gt 0 -and $unity.loader -gt 0 -and $unity.framework -gt 0 -and $unity.bytes -gt 10MB) "index=$($unity.index_html) wasm=$($unity.wasm) data=$($unity.data) loader=$($unity.loader) framework=$($unity.framework) size=$([math]::Round($unity.bytes/1MB,1))MB"
 
 # DSH plugin tgz
@@ -247,10 +267,10 @@ $beforeTestData = Test-Path (Join-Path $DataDir 'db\fca.db')
 $un = Join-Path $InstallDir 'Uninstall.exe'
 if (-not (Test-Path $un)) { throw "卸载器不存在：$un" }
 $sw = [System.Diagnostics.Stopwatch]::StartNew()
-$up = Start-Process -FilePath $un -ArgumentList @('/S') -Wait -PassThru -WorkingDirectory $Root
+$uninstallExit = Start-ExeWaitDirect -FilePath $un -Arguments @('/S') -WorkingDirectory $Root
 $sw.Stop()
-$report.results.uninstall = [ordered]@{ command = "`"$un`" /S"; exit_code = $up.ExitCode; elapsed_seconds = [math]::Round($sw.Elapsed.TotalSeconds, 1) }
-Add-Step 'silent-uninstall-exit-0' ($up.ExitCode -eq 0) "exit=$($up.ExitCode)"
+$report.results.uninstall = [ordered]@{ command = "`"$un`" /S"; method = 'CreateProcess (UseShellExecute=false)'; exit_code = $uninstallExit; elapsed_seconds = [math]::Round($sw.Elapsed.TotalSeconds, 1) }
+Add-Step 'silent-uninstall-exit-0' ($uninstallExit -eq 0) "exit=$uninstallExit"
 Start-Sleep -Milliseconds 800
 $remaining = @(Get-ChildItem $InstallDir -Recurse -File -ErrorAction SilentlyContinue | Select-Object -First 10 | ForEach-Object { $_.FullName.Substring($InstallDir.Length + 1) })
 $report.results.uninstall.remaining_files = $remaining

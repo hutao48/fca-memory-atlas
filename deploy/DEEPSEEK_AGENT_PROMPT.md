@@ -2,7 +2,7 @@
 
 > 把本文件全文 + 仓库地址交给 DeepSeek Agent（或任何具备本地命令行执行能力的 Agent），它就能按步骤自主完成安装、初始化、启动、DSH 插件接入与验收。
 > 仓库地址：`https://github.com/hutao48/fca-memory-atlas`
-> 预构建安装包（推荐）：`https://github.com/hutao48/fca-memory-atlas/releases/latest` → `FCA-Memory-Atlas-Setup-0.2.0-x64.exe`（v0.2.0：Unity 星云默认渲染 + WebGL 回退、工作区旋臂、Agent 思考节点）
+> 预构建安装包（推荐）：`https://github.com/hutao48/fca-memory-atlas/releases/latest` → `FCA-Memory-Atlas-Setup-0.2.1-x64.exe`（v0.2.1：Runtime 稳定性修复 EPIPE/启动超时 + Unity WebGL 内嵌星云、工作区旋臂、Agent 思考节点）
 
 ---
 
@@ -44,11 +44,11 @@ nvidia-smi --query-gpu=name,memory.total,driver_version --format=csv
 ### 方案 A：安装包（推荐）
 
 1. 获取安装包（任选其一）：
-   - 从 GitHub Releases 直接下载 `FCA-Memory-Atlas-Setup-0.2.0-x64.exe`（v0.2.0 Release 已附带，约 111 MB，含 sha256 校验文件；请优先使用 latest）；
-   - 或克隆仓库后本地构建：`node installer/build.js`（构建产物 `artifacts/installer/FCA-Memory-Atlas-Setup-0.2.0-x64.exe`，需要 Electron 缓存，见 `scripts/fetch-electron.js`；Unity 星云构建产物在 `artifacts/unity/FCANebula/`，缺失时安装包仍可构建并由桌面回退 WebGL）。
+   - 从 GitHub Releases 直接下载 `FCA-Memory-Atlas-Setup-0.2.1-x64.exe`（v0.2.1 Release 已附带，约 111 MB，含 sha256 校验文件；请优先使用 latest）；
+   - 或克隆仓库后本地构建：`node installer/build.js`（构建产物 `artifacts/installer/FCA-Memory-Atlas-Setup-0.2.1-x64.exe`，需要 Electron 缓存，见 `scripts/fetch-electron.js`；Unity 星云构建产物在 `artifacts/unity/FCANebula/`，缺失时安装包仍可构建并由桌面回退 WebGL）。
 2. 在 **Windows 文件资源管理器**中双击安装包（per-user，无需管理员）；静默安装：
    ```powershell
-   .\FCA-Memory-Atlas-Setup-0.2.0-x64.exe /S
+   .\FCA-Memory-Atlas-Setup-0.2.1-x64.exe /S
    ```
 3. 校验安装结果（必须全部存在）：
    ```powershell
@@ -57,8 +57,8 @@ nvidia-smi --query-gpu=name,memory.total,driver_version --format=csv
    Test-Path (Join-Path $app 'runtime\bin\fca-runtime.js')
    Test-Path (Join-Path $app 'node\node.exe')
    Test-Path (Join-Path $app 'docs\USER_MANUAL.md')
-   Test-Path (Join-Path $app 'unity\FCANebulaWebGL\index.html')   # v0.2.0 Unity WebGL 星云（内嵌界面；缺失时桌面回退内置 WebGL 星云）
-   Test-Path (Join-Path $app 'dsh_plugin')                      # v0.2.0 随包 DSH 插件 tgz（可离线安装）
+   Test-Path (Join-Path $app 'unity\FCANebulaWebGL\index.html')   # v0.2.1 Unity WebGL 星云（内嵌界面；缺失时桌面回退内置 WebGL 星云）
+   Test-Path (Join-Path $app 'dsh_plugin')                      # v0.2.1 随包 DSH 插件 tgz（可离线安装）
    ```
 4. 启动软件，完成首次启动向导（选择数据目录/端口 → 初始化空库 → 健康检查）。
 5. 星云视图默认在 Electron 窗口内嵌渲染 Unity WebGL；若资源缺失或加载失败，桌面自动回退内置 WebGL 星云（设置 → 星云引擎可切换）。可在星云视图确认 HUD 显示工作区图例（如 `FCA`/`default` 旋臂）。
@@ -137,7 +137,8 @@ fca_memory_get    → 返回完整正文/关系/版本
 | 9 | DSH 插件 | `fca_status` 连接成功；4 个 `fca_*` 工具可用；工具往返成功 |
 | 10 | 自动记忆 | 用户新一轮真实消息后 `fca_status.auto_memory.counters.stored` 增长；桌面星图出现对应节点 |
 | 11 | 桌面软件 | 可启动、可创建/编辑记忆、关闭重开数据与布局保留 |
-| 12 | **Unity 星云（v0.2.0）** | `<安装目录>\unity\FCANebulaWebGL\index.html` 存在；启动后 Electron 星云视图内嵌显示 Unity 星云（HUD 已连接真实 Runtime、工作区图例 `workspace:*` 旋臂）；切到 WebGL 引擎后内置星云仍渲染真实数据 |
+| 12 | **Unity 星云（v0.2.1）** | `<安装目录>\unity\FCANebulaWebGL\index.html` 存在；启动后 Electron 星云视图内嵌显示 Unity 星云（HUD 已连接真实 Runtime、工作区图例 `workspace:*` 旋臂）；切到 WebGL 引擎后内置星云仍渲染真实数据 |
+| 13.5 | **EPIPE 修复随包（v0.2.1 新增）** | `<安装目录>\runtime\src\runtime.js` 含 `isBrokenPipeError`/EPIPE 处理；关闭/强杀桌面 app 后 Runtime 不再出现 EPIPE→uncaughtException 死循环，`/health` 仍 200（回归 `runtime/test/logger-epipe.test.js`） |
 | 13 | **插件版本（v0.2.1）** | `fca_status.plugin.version="0.2.1"`；子会话 user-role 消息不产生 episodic 记忆（`skippedChildSession` 计数增长）；Agent 思考节点仍随回合写入 |
 | 14 | 卸载（可选） | 卸载后程序移除（含 `unity/`、`dsh_plugin/`），数据目录默认保留 |
 

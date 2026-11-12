@@ -4,6 +4,10 @@ import path from 'node:path';
 import { sanitizeForLog, redact } from '../security/redaction.js';
 
 const LEVELS = { debug: 10, info: 20, warn: 30, error: 40 };
+// 单文件 JSONL 上限；超过后轮转为 .1（保留最近一份）。
+// 背景：2026-11-12 EPIPE 死循环曾把 runtime 日志刷到 4.6GB，需要硬性兜底。
+const MAX_LOG_BYTES = 64 * 1024 * 1024;
+let sizeCheckCounter = 0;
 
 function dayStamp(d = new Date()) {
   const y = d.getFullYear();
@@ -23,6 +27,17 @@ export function createLogger({ config, stderr = process.stderr, stdout = process
   let filePath = path.join(config.paths.logsDir, `runtime-${dayStamp()}.log`);
   let stream = null;
   let closed = false;
+  // 父进程（桌面 app/终端）崩溃或被强杀后，stdout/stderr 管道会关闭；
+  // 此时对控制台的写入会触发 EPIPE 'error' 事件（异步），若无人监听会导致
+  // uncaughtException 循环（每次日志都写一次 stderr → 又一次 EPIPE → 无限刷屏，
+  // 事件循环被占满，/health 超时）。这里在首次 EPIPE 后永久关闭控制台输出，
+  // 只保留文件日志；Runtime 继续对外提供服务。
+  let consoleBroken = Boolean(silent);
+  if (stderr && typeof stderr.on === 'function') {
+    stderr.on('error', () => {
+      consoleBroken = true;
+    });
+  }
 
   function ensureStream() {
     if (stream || closed) return stream;
@@ -54,6 +69,31 @@ export function createLogger({ config, stderr = process.stderr, stdout = process
     return filePath;
   }
 
+  /** 超过上限时把当前文件轮转为 <file>.1，并重新打开新文件（防单次故障刷爆磁盘）。 */
+  function rotateIfNeeded() {
+    if (!stream) return;
+    sizeCheckCounter += 1;
+    if (sizeCheckCounter % 200 !== 0) return;
+    try {
+      const size = fs.statSync(currentFilePath()).size;
+      if (size < MAX_LOG_BYTES) return;
+      try {
+        stream.end();
+      } catch {
+        /* ignore */
+      }
+      stream = null;
+      try {
+        fs.rmSync(`${filePath}.1`, { force: true });
+        fs.renameSync(filePath, `${filePath}.1`);
+      } catch {
+        /* 轮转失败时下次继续尝试；不影响写入 */
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+
   function write(levelName, msg, fields = {}) {
     if (LEVELS[levelName] < LEVELS[level]) return;
     const entry = {
@@ -64,14 +104,15 @@ export function createLogger({ config, stderr = process.stderr, stdout = process
     };
     const clean = sanitizeForLog(entry, secrets);
     const line = `${JSON.stringify(clean)}\n`;
+    rotateIfNeeded();
     const s = ensureStream();
     if (s) s.write(line);
-    if (!silent) {
+    if (!consoleBroken) {
       const rendered = fields && Object.keys(fields).length ? ` ${JSON.stringify(sanitizeForLog(fields, secrets))}` : '';
       try {
         stderr.write(`[${clean.ts}] ${levelName.toUpperCase().padEnd(5)} ${clean.msg}${rendered}\n`);
-      } catch {
-        /* ignore broken pipes */
+      } catch (err) {
+        consoleBroken = true;
       }
     }
     return clean;

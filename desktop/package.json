@@ -1,6 +1,6 @@
 {
     "name":  "@fca/desktop",
-    "version":  "0.2.0",
+    "version":  "0.2.1",
     "private":  true,
     "description":  "FCA Memory Atlas — Windows desktop shell (Electron 38): three-pane professional astronomy UI, local Runtime lifecycle management, WebGL2 nebula canvas.",
     "main":  "main/main.js",

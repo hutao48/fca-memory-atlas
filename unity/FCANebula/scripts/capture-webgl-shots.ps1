@@ -48,6 +48,7 @@ $candidates = @()
 if ($TokenFile) { $candidates += $TokenFile }
 if ($env:FCA_HOME) { $candidates += (Join-Path $env:FCA_HOME 'config\runtime-token') }
 if ($env:LOCALAPPDATA) { $candidates += (Join-Path $env:LOCALAPPDATA 'FCA-Memory-Atlas\config\runtime-token') }
+$candidates += (Join-Path $env:LOCALAPPDATA 'FCA-Memory-Atlas\config\runtime-token')
 $resolvedTokenFile = $null
 foreach ($candidate in $candidates) {
     if ($candidate -and (Test-Path $candidate)) { $resolvedTokenFile = $candidate; break }

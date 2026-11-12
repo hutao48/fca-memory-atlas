@@ -1,8 +1,8 @@
-# FCA Memory Atlas 已知问题与限制（v0.2.0）
+# FCA Memory Atlas 已知问题与限制（v0.2.1）
 
-- 版本：v0.2.0（桌面/Runtime/安装包 0.2.0；DSH 插件 0.2.1；Runtime API v1）
+- 版本：v0.2.1（桌面/Runtime/安装包 0.2.1；DSH 插件 0.2.1；Runtime API v1）
 - 更新：2026-11-12
-- 适用范围：安装版桌面软件（`FCA-Memory-Atlas-Setup-0.2.0-x64.exe`，含 Unity 星云组件）+ 随包 FCA Local Runtime + DSH 插件
+- 适用范围：安装版桌面软件（`FCA-Memory-Atlas-Setup-0.2.1-x64.exe`，含 Unity 星云组件）+ 随包 FCA Local Runtime + DSH 插件
 - 来源：交付实测（`docs/INSTALL_TEST.md`、`artifacts/reports/install-*.json`、`artifacts/unity/*`、`artifacts/plugin/*`）+ QA 自动化测试（`docs/TEST_REPORT.md`、`artifacts/reports/security.json` 等）。
 
 级别说明：**高**=影响可用性/数据安全；**中**=影响部分功能或体验；**低**=边界问题；**信息**=设计限制/契约未覆盖，当前版本接受。
@@ -10,6 +10,15 @@
 > v0.2.0 为内部评估版本。下列问题除特别标注“已修复”外均**未修复**；使用前请阅读“规避方式”。
 
 ---
+
+## v0.2.1 已修复（保留记录）
+
+### KI-FIX-01 [已修复] 强杀桌面 app 后 Runtime EPIPE uncaughtException 死循环、/health 超时
+
+- 现象：关闭/强杀 FCA 桌面进程后，Runtime 仍占着 17860，但 `/health` 超时；runtime 日志每秒反复出现 `uncaughtException EPIPE: broken pipe, write`；此时再启动 app 会报"Runtime 启动超时（30s）"、`PORT_IN_USE`，界面显示 Runtime 未连接。
+- 根因：Runtime 的 stdout/stderr 管道随父进程关闭；logger 写 stderr 触发异步 `'error'` 事件（EPIPE）无人监听 → uncaughtException → handler 再写日志 → 再次 EPIPE，无限循环占满事件循环。
+- 修复：`runtime/src/runtime.js` + `runtime/src/logging/index.js`（忽略 EPIPE、控制台断开后仅写文件日志）；`desktop/main/runtime-manager.js`（子进程退出即快速失败，不再空等 30s）。
+- 回归：`runtime/test/logger-epipe.test.js` + `.cache/audit/verify-epipe-fix.mjs`（管道关闭后 6 次 /health 全部 200、0 条 EPIPE 日志）+ `scripts/verify.js` 23/23。
 
 ## v0.2.0 新增组件：Unity 星云 / 桌面集成 / 插件 0.2.1
 

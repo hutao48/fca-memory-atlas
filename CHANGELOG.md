@@ -2,6 +2,19 @@
 
 本项目遵循语义化版本：`MAJOR.MINOR.PATCH`。Alpha 阶段允许小版本内调整内部实现，但 `docs/PUBLIC_INTERFACE_FREEZE.md` 的公共契约只能由 Lead 审核后变更并记录于下。
 
+## [0.2.1] — 2026-11-12（Runtime 稳定性修复：EPIPE 死循环 / 启动超时）
+
+### 修复
+
+- **Runtime：父进程崩溃后 EPIPE 导致 uncaughtException 死循环、/health 超时（严重）**
+  - 根因：桌面 app 被强杀后，其子 Runtime 继承的 stdout/stderr 管道关闭；`logger` 对 stderr 的写入异步触发 `EPIPE` 的 `'error'` 事件，而 Runtime 未监听该事件 → `uncaughtException` → handler 再次 `logger.error` 写 stderr → 再次 EPIPE，形成无限刷屏循环，事件循环被占满，HTTP `/health` 超时；app 随后自动重启 Runtime 又遇到 `PORT_IN_USE`，进入 30s 启动超时，界面显示 Runtime 未连接。
+  - 修复：`runtime/src/runtime.js` 在进程级监听 `process.stdout/stderr` 的 `'error'` 事件并忽略 EPIPE（READY 行写入加保护）；`uncaughtException` handler 对 EPIPE/管道关闭类错误直接忽略、不再调用 logger（`isBrokenPipeError`）；`runtime/src/logging/index.js` 在首次控制台错误后永久关闭 stderr 输出（仅保留 JSONL 文件日志），Runtime 继续对外服务。
+  - 验证：新增回归测试 `runtime/test/logger-epipe.test.js`（3 项 PASS）；真实复现脚本 `.cache/audit/verify-epipe-fix.mjs` 模拟父进程死亡（关闭子进程管道）后连续 6 次 `/health` 均 200（2-3ms），日志 0 条 EPIPE/uncaughtException；`scripts/verify.js` 23/23 PASS。
+- **桌面：Runtime 子进程退出/端口占用时白等 30s 才失败（体验）**
+  - 根因：`waitForHealthy` 只判断 `ownedByUs === false` 的退出；自家 spawn 的子进程因 `PORT_IN_USE` 退出时状态已是 error，却仍循环到 30s 超时。
+  - 修复：`desktop/main/runtime-manager.js` 在子进程已退出且状态为 error 时立即抛出真实错误（含 PORT_IN_USE 日志提示），不再空等超时。
+- 本机已部署修复到 `D:\FCA-Memory-Atlas`（runtime + desktop main），重启后 Runtime healthy、app 已连接；安装包/Release v0.2.1 由 packaging 重新构建发布。
+
 ## [0.2.0] — 2026-11-12（Unity 星云 + 工作区旋臂 + 插件 0.2.1）
 
 ### 新增

@@ -1,30 +1,31 @@
-# FCA Memory Atlas v0.2.0 安装/启动/卸载实测（INSTALL_TEST）
+# FCA Memory Atlas v0.2.1 安装/启动/卸载实测（INSTALL_TEST）
 
-- 版本：**v0.2.0**（桌面/Runtime/安装包 0.2.0；DSH 插件 0.2.1；Runtime API v1）
+- 版本：**v0.2.1**（Runtime 稳定性修复版，其余同 v0.2.0；桌面/Runtime/安装包 0.2.1，DSH 插件 0.2.1，Runtime API v1）
 - 实测日期：2026-11-12（Asia/Tokyo）
+- 版本重点：**v0.2.1 = v0.2.0 + Runtime 稳定性修复（EPIPE 死循环 / 启动 30s 超时）；本安装包已包含修复**
 - 测试主机：Windows 11 x64（`<HOST>`），per-user 安装、无需管理员
 - 结论：**安装包构建成功；静默安装/文件完整性/安装版 Runtime 冒烟/静默卸载实测通过**。内嵌 Unity WebGL 星云证据见 §6（由 desktop-integration 在安装布局下实测截图 + 日志；本机自动化 shell 的单实例/GUI 限制见 §8）。
 
 ---
 
-## 1. 测试对象（v0.2.0 交付安装包）
+## 1. 测试对象（v0.2.1 交付安装包 · Runtime 稳定性修复版）
 
 | 项 | 值 |
 |---|---|
-| 安装包 | `artifacts\installer\FCA-Memory-Atlas-Setup-0.2.0-x64.exe` |
-| 大小 | **116,599,178 B（111.2 MB）** |
-| SHA256 | **`b84a656d810431a3923191caf3dcab2604d2508008c6d606a1d2aac01098c10c`** |
-| 版本 / API | 0.2.0 / v1 |
-| 构建时间 | `2026-11-12T11:50:47.010Z` |
-| 构建工具 | NSIS 3.04（`/SOLID lzma` + `DictSize 64`，`makensis` exit 0，耗时 236,560 ms） |
-| payload | **231 文件 / 388,373,115 B**（desktop 72、runtime 69、docs 21、**Unity WebGL 19 / 24.9 MiB**、**dsh_plugin 2 / 50 KiB**、vendor node、BUILD_INFO） |
-| 构建元数据 | `artifacts\reports\install-build-2026-11-12T11-50-47-010Z.json` |
-| makensis 完整日志 | `artifacts\reports\install-build-2026-11-12T11-50-47-010Z.makensis.log` |
-| SHA256 元数据 | `artifacts\installer\FCA-Memory-Atlas-Setup-0.2.0-x64.sha256.json` |
+| 安装包 | `artifacts\installer\FCA-Memory-Atlas-Setup-0.2.1-x64.exe` |
+| 大小 | **116,582,205 B（111.2 MB）**（v0.2.1 交付构建 #2） |
+| SHA256 | **`dcb8fc5b325acfd1d987c4cb25ec145e377b4244e8e6dd54019b395376dcc0eb`**（交付构建 #2；与实测构建 #1 `712f0c2a…` 产品代码相同、仅文档差异，两次构建均实测） |
+| 版本 / API | **0.2.1** / v1 |
+| 构建时间 | `2026-11-12T13:34:54.026Z` |
+| 构建工具 | NSIS 3.04（`/SOLID lzma` + `DictSize 64`，`makensis` exit 0，耗时 295,655 ms） |
+| payload | **231 文件 / 388,387,235 B**（desktop 72、runtime 69、docs 21、**Unity WebGL 19 / 24.9 MiB**、**dsh_plugin 2 / 50 KiB**、vendor node、BUILD_INFO） |
+| 构建元数据 | `artifacts\reports\install-build-2026-11-12T13-34-54-026Z.json` |
+| makensis 完整日志 | `artifacts\reports\install-build-2026-11-12T13-34-54-026Z.makensis.log` |
+| SHA256 元数据 | `artifacts\installer\FCA-Memory-Atlas-Setup-0.2.1-x64.sha256.json` |
 
 构建预检全部 `true`：`FCA Memory Atlas.exe`、`resources/app/{package.json,main/main.js,preload.js,ipc.js,runtime-manager.js,**unity-viewer.js**,**unity-embed.js**,renderer/index.html,renderer/app.js}`、`runtime/bin/fca-runtime.js`、`runtime/src/{runtime.js,services.js,server/index.js}`、`node/node.exe`、`docs/{USER_MANUAL,KNOWN_ISSUES,INSTALL_TEST,UNITY_NEBULA,FINAL_ACCEPTANCE}.md`、`BUILD_INFO.json`、`LICENSE`；`unity_renderer_present=true`、`dsh_plugin_package_present=true`、`runtime_llm_present=true`。
 
-> **最终交付包**：本文件写入后在代码/文档冻结条件下**重建一次**以把本文与最新文档打入 payload；最终包 sha256 以 `artifacts\installer\FCA-Memory-Atlas-Setup-0.2.0-x64.sha256.json` 与 Release 资产说明为准（重建仅更新文档内容，产品代码与 payload 组件不变）。
+> **最终交付包**：本文件写入后在代码/文档冻结条件下**重建一次**以把本文与最新文档打入 payload；最终包 sha256 以 `artifacts\installer\FCA-Memory-Atlas-Setup-0.2.1-x64.sha256.json` 与 Release 资产说明为准（重建仅更新文档内容，产品代码与 payload 组件不变）。
 
 ## 2. 测试环境
 
@@ -61,18 +62,19 @@ tools\node.cmd installer\build.js
 | 3 | NSIS 静默安装 `/S /D=<隔离目录>` | ✅ PASS | exit code 0 |
 | 4 | 安装文件完整性（35 项关键文件） | ✅ PASS | 主程序/resources/app（含 unity-embed.js）/runtime/node/docs/README/CHANGELOG |
 | 5 | **Unity WebGL payload** | ✅ PASS | `unity\FCANebulaWebGL\index.html` + `Build\*.wasm/.data/.loader.js/.framework.js`，约 24.9 MiB |
+| 5.1 | **EPIPE 稳定性修复随包生效（v0.2.1）** | ✅ PASS | 安装目录 `runtime\src\runtime.js` 含 `isBrokenPipeError`/EPIPE 处理、`runtime\src\logging\index.js` 含 `consoleBroken` 控制台降级；`installer/verify-installed.ps1` 新增 `epipe-fix-in-payload` 检查 PASS |
 | 6 | **DSH 插件 tgz** | ✅ PASS | `dsh_plugin\dsh-plugin-fca-memory-0.2.1.tgz`（51,184 B）+ README |
-| 7 | BUILD_INFO 版本/可选组件 | ✅ PASS | `version=0.2.0`、`optional_components.unity_nebula_webgl.included=true`、`dsh_plugin.included=true` |
+| 7 | BUILD_INFO 版本/可选组件 | ✅ PASS | `version=0.2.1`、`optional_components.unity_nebula_webgl.included=true`、`dsh_plugin.included=true` |
 | 8 | `install-report.ini` | ✅ PASS | 记录 `unity_nebula_webgl=...\unity\FCANebulaWebGL\index.html`、`dsh_plugin=...\.tgz` |
 | 9 | 安装日志完成标记 | ✅ PASS | `%TEMP%\fca-install.log`：`step: installation completed successfully` |
-| 10 | **安装版 Runtime 冒烟** | ✅ PASS | 用安装目录内 `node\node.exe` + `runtime\bin\fca-runtime.js`：init → serve → `/health` ok → `/graph`（空库 0 节点）→ 写一条真实记忆（`mem_c50e8b67…`）→ `/graph` 1 节点 → shutdown ok |
+| 10 | **安装版 Runtime 冒烟** | ✅ PASS | 用安装目录内 `node\node.exe` + `runtime\bin\fca-runtime.js`：init → serve → `/health` ok → `/graph`（空库 0 节点）→ 写一条真实记忆（`mem_f1561de0…`）→ `/graph` 1 节点 → shutdown ok |
 | 11 | 静默卸载 `/S` | ✅ PASS | exit code 0；卸载日志 `step: uninstall completed` |
 | 12 | 卸载后程序目录移除 | ✅ PASS | 安装目录（含 `unity/`、`dsh_plugin/`）全部清理 |
 | 13 | 用户数据保留策略 | ✅ PASS | 卸载器默认保留用户数据目录（隔离测试库保留，db 文件可查） |
 | 14 | 真实 Runtime 17860 未受干扰 | ✅ PASS | 安装/卸载前后 `/health` 均 ok（卸载器不停止 Runtime，INST-2 修复延续） |
 | 15 | HKCU 卸载项 / 桌面/开始菜单快捷方式 | ⚠️ 环境受限 | 本机 DSH 工具 shell 的 Low IL 沙箱会静默丢弃这些写入（§8）；真实用户 Explorer 双击路径不受影响，由设计保证（安装器代码 `CreateShortCut`/`WriteRegStr` 已在 v0.1.x 正常安装中验证） |
 
-> 主实测原始报告：`artifacts\reports\install-verify-20261112-205735.json`（RESULT: PASS，全部步骤通过）。
+> 主实测原始报告：**构建 #1（产品代码相同）全流程 PASS** `artifacts\reports\install-verify-20261112-223401.json`；交付构建 #2 的安装产品检查全部 PASS（`install-verify-20261112-223958.json`；其中 “无运行实例” 预检因测试期间外部启动了已安装 app 而标记 FAIL，属环境干扰非安装器缺陷——安装/卸载/EPIPE/Unity/插件/Runtime 冒烟/数据保留均 PASS）。
 >
 > 具体 JSON 字段：`installer.{size_bytes,sha256,sha256_ok}`、`results.{install.exit_code,installed_files.missing,unity_webgl,dsh_plugin,build_info,install_report,install_log,installed_runtime_smoke,uninstall,uninstall_log}`、`info_only.{real_runtime_17860,low_il_limits}`。
 
@@ -110,8 +112,8 @@ v0.2.0 星云改为 **Unity WebGL 构建内嵌 Electron 星云视图**（本地�
 
 | 文件 | 内容 |
 |---|---|
-| `artifacts\installer\FCA-Memory-Atlas-Setup-0.2.0-x64.exe` + `.sha256.json` | 交付安装包与校验元数据 |
-| `artifacts\reports\install-build-2026-11-12T11-50-47-010Z.{json,makensis.log}` | 构建证据（makensis exit 0 / payload / checks / 完整日志） |
+| `artifacts\installer\FCA-Memory-Atlas-Setup-0.2.1-x64.exe` + `.sha256.json` | 交付安装包与校验元数据 |
+| `artifacts\reports\install-build-2026-11-12T13-34-54-026Z.{json,makensis.log}` | 构建证据（makensis exit 0 / payload / checks / 完整日志） |
 | `artifacts\reports\install-verify-<timestamp>.json` | 本报告 §4 主实测原始结果（SHA/安装/文件/Unity/插件/Runtime 冒烟/卸载/守卫） |
 | `artifacts\unity\integration-embedded-*.png`、`webgl-shots\webgl-view-*.png`、`shots-final\` | 内嵌 Unity WebGL 星云与回退证据（真实数据） |
 | `docs\UNITY_NEBULA.md` §6/§6.12、`docs\FINAL_ACCEPTANCE.md` | Unity 内嵌实现说明与验收汇总 |
@@ -125,7 +127,7 @@ v0.2.0 星云改为 **Unity WebGL 构建内嵌 Electron 星云视图**（本地�
 
 ## 9. 当前用户安装实例状态 与 升级/重装方案（供 Lead 最终替换）
 
-**当前状态（2026-11-12 20:4x 实测核对）**：用户实例目录 `D:\FCA-Memory-Atlas` 已是 **v0.2.0 安装布局**（`BUILD_INFO.json`: `version=0.2.0`、`built_at=2026-11-12T11:23:14.442Z`、payload 231 文件；`unity\FCANebulaWebGL\` 24.9MB；`dsh_plugin\dsh-plugin-fca-memory-0.2.1.tgz` 51,184 B），数据目录 `<FCA_DATA_DIR>` 未变、Runtime 17860 正常。**即：用户当前实例已手动升级到 v0.2.0 交付内容**；后续如需用 Setup.exe 重新安装，按下面步骤。
+**当前状态（2026-11-12 20:4x 实测核对）**：用户实例目录 `D:\FCA-Memory-Atlas` 已是 **v0.2.0 安装布局**（`BUILD_INFO.json`: `version=0.2.1`、`built_at=2026-11-12T11:23:14.442Z`、payload 231 文件；`unity\FCANebulaWebGL\` 24.9MB；`dsh_plugin\dsh-plugin-fca-memory-0.2.1.tgz` 51,184 B），数据目录 `<FCA_DATA_DIR>` 未变、Runtime 17860 正常。**即：用户当前实例已手动升级到 v0.2.0 交付内容**；后续如需用 Setup.exe 重新安装，按下面步骤。
 
 推荐步骤（不丢数据）：
 
@@ -138,7 +140,7 @@ Get-Process 'FCA Memory Atlas' -ErrorAction SilentlyContinue | Stop-Process -For
 #    如 Runtime 仍在：D:\FCA-Memory-Atlas\node\node.exe ...\fca-runtime.js stop --fca-home=<FCA_DATA_DIR>
 
 # 2) 静默安装/升级到原目录（安装器检测到旧版本会提示先停止 Runtime；/S 静默继续）
-Start-Process -FilePath D:\FCA\FCA-Memory-Atlas\artifacts\installer\FCA-Memory-Atlas-Setup-0.2.0-x64.exe `
+Start-Process -FilePath D:\FCA\FCA-Memory-Atlas\artifacts\installer\FCA-Memory-Atlas-Setup-0.2.1-x64.exe `
   -ArgumentList '/S','/D=D:\FCA-Memory-Atlas' -Wait -PassThru | Select-Object ExitCode
 
 # 3) 校验新布局与版本

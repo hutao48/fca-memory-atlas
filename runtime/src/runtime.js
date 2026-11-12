@@ -12,6 +12,27 @@ import { backupDatabase } from './backup/index.js';
 import { ensureTokenFile } from './security/auth.js';
 import { newTraceId } from './core/ids.js';
 
+/**
+ * 判断是否为"父进程/stdout 管道已关闭"类错误。
+ * 这类错误不应触发 uncaughtException 日志链路（否则日志写入本身会再次 EPIPE，形成死循环）。
+ */
+export function isBrokenPipeError(err) {
+  if (!err) return false;
+  const code = err.code || err.errno;
+  return code === 'EPIPE' || code === 'ECONNRESET' || /EPIPE|broken pipe/i.test(String(err.message || ''));
+}
+
+// 保护控制台流：桌面 app 崩溃/被强杀后，Runtime 继承的 stdout/stderr 管道会关闭。
+// 不监听 'error' 时，任何一次控制台写入都会异步触发 EPIPE 'error' 事件 → uncaughtException。
+for (const stream of [process.stdout, process.stderr]) {
+  if (stream && typeof stream.on === 'function') {
+    stream.on('error', (err) => {
+      if (isBrokenPipeError(err)) return;
+      // 其它控制台错误同样不作为进程级异常：日志文件仍然可写，Runtime 继续运行。
+    });
+  }
+}
+
 export const LOCK_FILE_NAME = 'runtime.lock';
 
 export function lockFilePath(config) {
@@ -256,7 +277,11 @@ export async function startRuntime({ config, logger }) {
     initialized: holder.isInitialized,
   });
   // 机器可读的 READY 行（Desktop/CLI/测试用于发现端口与数据目录）
-  process.stdout.write(`${readyLine(readyInfo)}\n`);
+  try {
+    process.stdout.write(`${readyLine(readyInfo)}\n`);
+  } catch (err) {
+    if (!isBrokenPipeError(err)) throw err;
+  }
 
   let shutdownPromise = null;
   async function shutdown(reason = 'api') {
@@ -312,7 +337,13 @@ export async function startRuntime({ config, logger }) {
   process.on('SIGINT', onSignal);
   process.on('SIGTERM', onSignal);
   process.on('uncaughtException', (err) => {
-    logger.error('uncaughtException', { error: err.message, stack: String(err.stack ?? '').slice(0, 4000) });
+    // 管道关闭类错误：直接忽略，绝不能再调用 logger（logger 写 stderr 会再次 EPIPE）。
+    if (isBrokenPipeError(err)) return;
+    try {
+      logger.error('uncaughtException', { error: err.message, stack: String(err.stack ?? '').slice(0, 4000) });
+    } catch {
+      /* 日志链路自身失败时不影响进程存活 */
+    }
     state.errorStats.count += 1;
     state.errorStats.last = { code: 'INTERNAL', message: err.message, ts: new Date().toISOString(), trace_id: null };
   });

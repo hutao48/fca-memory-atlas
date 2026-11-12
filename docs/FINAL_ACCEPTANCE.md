@@ -1,20 +1,20 @@
-# FCA Memory Atlas v0.2.0 — 最终验收报告
+# FCA Memory Atlas v0.2.1 — 最终验收报告（含 v0.2.0 全部交付）
 
 - 验收时间：2026-11-12（Asia/Tokyo）
 - 项目：`D:\FCA\FCA-Memory-Atlas`
-- 版本：**v0.2.0**（桌面/Runtime/安装包 0.2.0；DSH 插件 **0.2.1**；Runtime API v1 未变）
-- 结论：**v0.2.0 交付完成** —— 在 v0.1.x 三件套基础上完成「星云渲染迁移 Unity（默认引擎 + WebGL 自动回退）」「同一工作区记忆归入星云同一旋臂」「Agent 思考节点自动记忆」「DSH 插件 0.2.1」「安装包 0.2.0（含 Unity 组件）」。
-- 说明：本报告为 v0.2.0 验收汇总；v0.1.0 的历史验收细节见本文档“v0.1.0 归档”章节与 `CHANGELOG.md`。所有关键项均引用真实运行/构建证据（路径见各节），失败与限制如实列出。
+- 版本：**v0.2.1**（桌面/Runtime/安装包 0.2.1；DSH 插件 **0.2.1**；Runtime API v1 未变）
+- 结论：**v0.2.1 交付完成** —— 在 v0.2.0（Unity 星云三件套）基础上修复 Runtime 稳定性 P0（EPIPE 死循环/启动超时）；v0.2.0 在 v0.1.x 三件套基础上完成「星云渲染迁移 Unity（默认引擎 + WebGL 自动回退）」「同一工作区记忆归入星云同一旋臂」「Agent 思考节点自动记忆」「DSH 插件 0.2.1」「安装包 0.2.0（含 Unity 组件）」。
+- 说明：本报告为 v0.2.1 验收汇总（含 v0.2.0 全部交付）；v0.1.0 的历史验收细节见本文档“v0.1.0 归档”章节与 `CHANGELOG.md`。所有关键项均引用真实运行/构建证据（路径见各节），失败与限制如实列出。
 
 ---
 
-## 1. 交付物清单（v0.2.0）
+## 1. 交付物清单（v0.2.1）
 
 | 交付物 | 路径 | 状态 |
 |---|---|---|
-| 桌面软件安装包（Windows x64，per-user，NSIS + 卸载器，含 Unity 星云） | `artifacts/installer/FCA-Memory-Atlas-Setup-0.2.0-x64.exe`（111.2 MB（116,599,178 B），sha256 `b84a656d810431a3923191caf3dcab2604d2508008c6d606a1d2aac01098c10c`） | ✅ 构建/安装/卸载实测通过 |
-| 安装包校验与构建证据 | `artifacts/installer/FCA-Memory-Atlas-Setup-0.2.0-x64.sha256.json`、`artifacts/reports/install-build-*.json`、同名 `.makensis.log` | ✅ |
-| 桌面软件源码 | `desktop/`（Electron 38 主进程 + ESM renderer + Unity 集成 `main/unity-viewer.js` + WebGL 回退） | ✅ |
+| 桌面软件安装包（Windows x64，per-user，NSIS + 卸载器，含 Unity 星云） | `artifacts/installer/FCA-Memory-Atlas-Setup-0.2.1-x64.exe`（v0.2.1 交付构建 #2：116,582,205 B（111.2 MB），sha256 `dcb8fc5b325acfd1d987c4cb25ec145e377b4244e8e6dd54019b395376dcc0eb`；产品代码与实测构建 #1 `712f0c2a…` 相同，两次构建均安装实测） | ✅ 构建/安装/卸载实测通过 |
+| 安装包校验与构建证据 | `artifacts/installer/FCA-Memory-Atlas-Setup-0.2.1-x64.sha256.json`、`artifacts/reports/install-build-*.json`、同名 `.makensis.log` | ✅ |
+| 桌面软件源码 | `desktop/`（Electron 38 主进程 + ESM renderer + Unity 集成 `main/unity-embed.js`/`unity-viewer.js` + WebGL 回退；**v0.2.1 含 Runtime 启动失败快速失败**） | ✅ |
 | FCA Local Runtime | `runtime/`（Node 24 + `node:sqlite`，零第三方运行时依赖；API v1 未变） | ✅ |
 | **Unity 星云（WebGL，内嵌 Electron）** | `artifacts/unity/FCANebulaWebGL/`（Unity 2022.3 WebGL 构建：`index.html` + `Build/*.wasm/*.data/*.loader.js/*.framework.js` + `TemplateData/`） | ✅ 随安装包分发到 `<InstallDir>\unity\FCANebulaWebGL\`；桌面星云视图内嵌渲染 |
 | Unity 星云源码/工程 | `unity/FCANebula/`（Unity 2022.3.62f3，Built-in RP；含 standalone 与 WebGL 构建脚本） | ✅ |
@@ -70,12 +70,23 @@
 
 ---
 
+### 3.5 v0.2.1 Runtime 稳定性修复（EPIPE 死循环 / 启动超时）验证
+
+- **P0 问题**：强杀 FCA 桌面 app 后，其子 Runtime 继承的 stdout/stderr 管道关闭 → logger 写 stderr 触发未监听的异步 `EPIPE` → `uncaughtException` → handler 再次写日志 → 无限 EPIPE 循环占满事件循环 → `/health` 超时；随后 app 自动重启 Runtime 又遇 `PORT_IN_USE`，最终 30s 启动超时、界面 Runtime 未连接。
+- **修复**：`runtime/src/runtime.js` 进程级监听 stdout/stderr `'error'` 并忽略 EPIPE（READY 写入保护、`isBrokenPipeError`）；`runtime/src/logging/index.js` 控制台首次断开后永久降级为仅 JSONL 文件日志（`consoleBroken`）；`desktop/main/runtime-manager.js` 子进程已退出且 state=error 时立即失败，不再空等 30s。
+- **验证证据**：
+  - 回归单测 `runtime/test/logger-epipe.test.js` **3/3 PASS**；
+  - 真实复现脚本 `.cache/audit/verify-epipe-fix.mjs`：关闭子进程管道后连续 6 次 `/health` 均 200（2–3ms）、0 条 EPIPE/uncaughtException；
+  - `scripts/verify.js` **23/23 PASS**；
+  - 本机 `D:\FCA-Memory-Atlas` 手工热修后：Runtime pid 3828 healthy、app 已连接、Unity WebGL 32 nodes/22 edges/4 arms；
+  - **安装包随包验证**：`installer/verify-installed.ps1` 新增 `epipe-fix-in-payload` 检查 PASS（安装目录 `runtime/src/runtime.js` 含 `isBrokenPipeError`/EPIPE 处理、`logging/index.js` 含 `consoleBroken`）；安装实测同时验证「正常关闭 app 后 Runtime 仍健康」（17860 before/after=True）。
+- 已知问题状态：`docs/KNOWN_ISSUES.md` KI-FIX-01 已标“已修复（保留记录）”。
 ## 4. 版本一致性
 
 | 组件 | 版本 |
 |---|---|
 | root `package.json` / `desktop/package.json` | 0.2.0 |
-| Windows 安装包 | 0.2.0（`FCA-Memory-Atlas-Setup-0.2.0-x64.exe`） |
+| Windows 安装包 | 0.2.0（`FCA-Memory-Atlas-Setup-0.2.1-x64.exe`） |
 | FCA Local Runtime / HTTP API | 0.1.0 / v1（未变） |
 | DSH 插件 | 0.2.1 |
 | Unity 星云 | 2022.3.62f3 WebGL 构建（随安装包分发到 `unity/FCANebulaWebGL`） |
@@ -98,9 +109,9 @@
 
 ---
 
-## 6. 最终交付状态
+## 6. 最终交付状态（v0.2.1）
 
-- **可安装**：✅ 安装包 0.2.0 构建成功，隔离目录静默安装/卸载实测通过（详见 `docs/INSTALL_TEST.md`）。
+- **可安装**：✅ 安装包 0.2.1 构建成功，隔离目录静默安装/卸载实测通过（详见 `docs/INSTALL_TEST.md`）。
 - **可启动**：✅ 桌面主程序 + 安装版 Runtime + Unity 星云渲染（含 WebGL 回退）。
 - **可卸载**：✅ 程序/快捷方式/卸载项清理；用户数据默认保留并提示。
 - **可追溯**：✅ 构建/安装/插件/Unity 证据均落盘（`artifacts/reports/`、`artifacts/unity/`、`artifacts/plugin/`）。

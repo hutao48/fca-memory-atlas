@@ -360,7 +360,14 @@ function createRuntimeManager(options) {
         error.code = 'INCOMPATIBLE';
         throw error;
       }
-      if (!child && ownedByUs === false && state === 'error') throw new Error('Runtime 进程已退出');
+      // 子进程已退出且进入 error/restart 状态时立即失败，不再空等 30s 超时
+      // （典型场景：端口被无响应的旧 Runtime 占用 → 子进程打印 PORT_IN_USE 后退出）。
+      if (!child && state === 'error' && lastError) {
+        const error = new Error(lastError.message);
+        error.code = lastError.code || 'RUNTIME_EXITED';
+        error.hint = lastError.hint;
+        throw error;
+      }
       await new Promise((resolve) => setTimeout(resolve, 400));
     }
     const error = new Error(`Runtime 启动超时（${Math.round(timeoutMs / 1000)}s）`);

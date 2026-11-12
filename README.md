@@ -1,21 +1,21 @@
-# FCA Memory Atlas — v0.2.0
+# FCA Memory Atlas — v0.2.1
 
 FCA（Fish Cognitive Architecture）的本地认知基础设施实现，交付三个可运行产品：
 
 | 产品 | 说明 | 目录 / 交付物 |
 |---|---|---|
-| **FCA Memory Atlas** | 可安装的 Windows x64 桌面软件（Electron 38 + **Unity 星云渲染**，内置 WebGL 回退） | `desktop/`；安装包 `artifacts/installer/FCA-Memory-Atlas-Setup-0.2.0-x64.exe` |
+| **FCA Memory Atlas** | 可安装的 Windows x64 桌面软件（Electron 38 + **Unity 星云渲染**，内置 WebGL 回退） | `desktop/`；安装包 `artifacts/installer/FCA-Memory-Atlas-Setup-0.2.1-x64.exe` |
 | **FCA Local Runtime** | 本地认知服务（127.0.0.1:17860，SQLite，零第三方运行时依赖） | `runtime/`；随安装包分发（含随包 Node 24） |
 | **FCA DSH Plugin** | 正式 DSH Cordis 插件 v0.2.1（安装到 DSH profile，连接同一 Runtime） | `dsh_plugin/`；产物 `artifacts/plugin/dsh-plugin-fca-memory-0.2.1.tgz` |
 | **FCA Nebula（Unity WebGL）** | Unity 2022.3 WebGL 星云渲染器（工作区旋臂 + Agent 思考节点可视化），**内嵌 Electron 界面**（本地静态服务 + iframe） | `unity/FCANebula/`（源码含 standalone/WebGL 构建脚本）；随安装包分发到 `<安装目录>\unity\FCANebulaWebGL\`，构建产物 `artifacts/unity/FCANebulaWebGL/` |
 
 三者共享同一个 FCA Local Runtime 和同一套数据；任一 UI 关闭不影响数据完整性。LLM 通过 API Gateway 调用，模型可替换；本地记忆的读写不依赖任何 LLM。
 
-v0.2.0 重点：**星云渲染迁移到 Unity WebGL 并内嵌 Electron 界面（默认引擎，失败自动回退内置 WebGL 星云）**；同一工作区的记忆自动归到星云的**一条旋臂**（`workspace:<label>` 标签驱动，旧记忆无需迁移）；DSH 插件把每个 Agent 回合聚合为一条 **Agent 思考节点**记忆（推理/工具/结论，脱敏后入库）；插件 v0.2.1 过滤子会话 user-role 消息并清理历史噪声。详见 `CHANGELOG.md` 与 `docs/UNITY_NEBULA.md`。
+**v0.2.1 稳定性修复**：修复「强杀桌面 app 后 Runtime 子进程 stdout/stderr 管道断开 → EPIPE uncaughtException 死循环 → /health 超时 / app 启动 PORT_IN_USE」的 P0 问题（Runtime 进程级 EPIPE 处理 + 控制台日志永久降级为仅文件日志；桌面端 Runtime 启动失败快速失败不再空等 30s）。回归测试 `runtime/test/logger-epipe.test.js` 3/3、真实复现脚本 PASS。`n`n**v0.2.0 重点**：**星云渲染迁移到 Unity WebGL 并内嵌 Electron 界面（默认引擎，失败自动回退内置 WebGL 星云）**；同一工作区的记忆自动归到星云的**一条旋臂**（`workspace:<label>` 标签驱动，旧记忆无需迁移）；DSH 插件把每个 Agent 回合聚合为一条 **Agent 思考节点**记忆（推理/工具/结论，脱敏后入库）；插件 v0.2.1 过滤子会话 user-role 消息并清理历史噪声。详见 `CHANGELOG.md` 与 `docs/UNITY_NEBULA.md`。
 
 ## 快速开始（安装版，推荐）
 
-1. 双击 `artifacts/installer/FCA-Memory-Atlas-Setup-0.2.0-x64.exe`（per-user 安装，无需管理员）。
+1. 双击 `artifacts/installer/FCA-Memory-Atlas-Setup-0.2.1-x64.exe`（per-user 安装，无需管理员）。
 2. 按向导安装（默认目录 `%LOCALAPPDATA%\Programs\FCA Memory Atlas`），完成后可从桌面/开始菜单启动。
 3. 首次启动进入**首次启动向导**：选择数据目录（默认 `%LOCALAPPDATA%\FCA-Memory-Atlas`）→ 端口（默认 17860）→ 初始化空库 → 健康检查 → 完成。
 4. 星云视图默认在 Electron 窗口内嵌渲染 **Unity WebGL**（本地静态服务 + iframe）；可在“设置 → 星云引擎”切换 `Unity / WebGL`，Unity 资源缺失或启动失败时自动回退内置 WebGL 星云。
@@ -25,25 +25,26 @@ v0.2.0 重点：**星云渲染迁移到 Unity WebGL 并内嵌 Electron 界面（
 
 ```powershell
 # 默认目录静默安装
-.\FCA-Memory-Atlas-Setup-0.2.0-x64.exe /S
+.\FCA-Memory-Atlas-Setup-0.2.1-x64.exe /S
 # 自定义目录（/D= 必须是最后一个参数，路径不要加引号）
-.\FCA-Memory-Atlas-Setup-0.2.0-x64.exe /S /D=D:\Apps\FCA-Memory-Atlas
+.\FCA-Memory-Atlas-Setup-0.2.1-x64.exe /S /D=D:\Apps\FCA-Memory-Atlas
 # 安装日志：%TEMP%\fca-install.log；静默卸载：<安装目录>\Uninstall.exe /S（默认保留用户数据）
 ```
 
-安装包校验：同目录 `FCA-Memory-Atlas-Setup-0.2.0-x64.sha256.json`（`Get-FileHash -Algorithm SHA256` 比对）。
+安装包校验：同目录 `FCA-Memory-Atlas-Setup-0.2.1-x64.sha256.json`（`Get-FileHash -Algorithm SHA256` 比对）。
 
-当前交付包（2026-11-12 v0.2.0 终版构建；安装/卸载实测记录见 `docs/INSTALL_TEST.md`）：
+当前交付包（2026-11-12 **v0.2.1** 构建；最终数值见 `artifacts/installer/FCA-Memory-Atlas-Setup-0.2.1-x64.sha256.json` 与 `docs/INSTALL_TEST.md`）：
 
 | 项目 | 值 |
 |---|---|
-| 文件 | `artifacts/installer/FCA-Memory-Atlas-Setup-0.2.0-x64.exe` |
-| 大小 | 111.2 MB（116,599,178 B） |
-| SHA256 | `b84a656d810431a3923191caf3dcab2604d2508008c6d606a1d2aac01098c10c` |
-| 版本 / API | 0.2.0 / v1 |
-| 构建时间 | 2026-11-12T11:12:16.813Z |
-| payload | 231 文件 / 388,322,796 B（desktop 72、runtime 69、docs 21、unity WebGL 19 / 24.9 MiB、dsh_plugin 2 / 50 KiB）（desktop / runtime / docs / **unity** / vendor node） |
-| 构建证据 | ``artifacts/reports/install-build-2026-11-12T11-50-47-010Z.json` + 同名 `.makensis.log`` + 同名 `.makensis.log` |
+| 文件 | `artifacts/installer/FCA-Memory-Atlas-Setup-0.2.1-x64.exe` |
+| 大小 | 116,582,205 B（111.2 MB） |
+| SHA256 | `dcb8fc5b325acfd1d987c4cb25ec145e377b4244e8e6dd54019b395376dcc0eb`（v0.2.1 交付构建；产品代码与实测构建 `712f0c2a…` 相同，仅文档更新） |
+| 版本 / API | 0.2.1 / v1 |
+| payload | 见构建报告 `artifacts/reports/install-build-*.json`（含 desktop/runtime/docs/vendor node/Unity WebGL/dsh_plugin） |
+| 构建时间 | 2026-11-12T13:34:54.026Z |
+| payload | 231 文件 / 388,387,235 B（desktop 72、runtime 69、docs 21、Unity WebGL 19 / 24.9 MiB、dsh_plugin 2 / 50 KiB） |
+| 构建证据 | `artifacts/reports/install-build-2026-11-12T13-34-54-026Z.json` + 同名 `.makensis.log` |
 
 > Unity 星云组件为可选 payload：构建时 `artifacts/unity/FCANebulaWebGL/index.html` 存在则打包到 `<安装目录>\unity\FCANebulaWebGL\`，并在 `BUILD_INFO.json` / `install-report.ini` 记录；缺失时桌面自动回退内置 WebGL 星云。standalone 版（`artifacts/unity/FCANebula`）默认不随安装包分发（开发/备用）。
 
@@ -89,8 +90,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File installer\run-install-test.p
 
 | 交付物 | 路径 |
 |---|---|
-| Windows x64 安装包（NSIS，per-user，含卸载器；含 Unity 星云） | `artifacts/installer/FCA-Memory-Atlas-Setup-0.2.0-x64.exe` |
-| 安装包 SHA256/体积元数据 | `artifacts/installer/FCA-Memory-Atlas-Setup-0.2.0-x64.sha256.json` |
+| Windows x64 安装包（NSIS，per-user，含卸载器；含 Unity 星云） | `artifacts/installer/FCA-Memory-Atlas-Setup-0.2.1-x64.exe` |
+| 安装包 SHA256/体积元数据 | `artifacts/installer/FCA-Memory-Atlas-Setup-0.2.1-x64.sha256.json` |
 | 构建证据（makensis 日志 + 构建 JSON） | `artifacts/reports/install-build-*` |
 | 安装/启动/卸载实测报告 | `docs/INSTALL_TEST.md` + `artifacts/reports/install-test-*.json` |
 | 用户手册 | `docs/USER_MANUAL.md` |
@@ -108,7 +109,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File installer\run-install-test.p
 - `docs/UNITY_NEBULA.md` — Unity 星云渲染：数据契约、工作区旋臂、构建（standalone/WebGL）、Electron 内嵌集成与回退、已知限制
 - `docs/KNOWN_ISSUES.md` — 已知问题与限制（含 QA 安全测试结论与 v0.2.0 新增项）
 - `docs/INSTALL_TEST.md` — 安装包真机安装/启动/卸载实测记录与证据
-- `docs/FINAL_ACCEPTANCE.md` — v0.2.0 最终验收报告
+- `docs/FINAL_ACCEPTANCE.md` — v0.2.1 最终验收报告（含 v0.2.0 全部交付）
 - `docs/ENVIRONMENT_REPORT.md` — 环境调查与交付阶段修正（Node 路径/NSIS 构建限制/Electron 沙箱差异）
 - `docs/PUBLIC_INTERFACE_FREEZE.md` — 冻结的数据模型 / API / 事件 / 渲染契约（并行开发唯一契约）
 - `docs/API.md` — Runtime HTTP API 文档
@@ -149,6 +150,7 @@ FCA-Memory-Atlas/
 
 ## 版本
 
+- **v0.2.1（2026-11-12）**：Runtime 稳定性修复（EPIPE 死循环/启动超时），安装包重建；其余同 v0.2.0。
 - **v0.2.0（2026-11-12）**：Unity 星云渲染（默认，WebGL 回退）、工作区旋臂、Agent 思考节点、DSH 插件 v0.2.1、安装包含 Unity 组件；文档与验收报告更新。详见 `CHANGELOG.md`。
 - v0.1.1（2026-11-12）：桌面 UI 热修（编辑器/记忆列表）。
 - v0.1.0（2026-11-12）：Alpha 0.1 三件套首次交付（桌面 + Runtime + DSH 插件 + NSIS 安装包）。
