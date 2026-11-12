@@ -1,21 +1,50 @@
-MIT License
+FCA Memory Atlas 源码可见许可协议（非商用 · 禁止二次修改分发）
+FCA Memory Atlas Source-Available License (Non-Commercial, No Redistribution of Modifications)
+版本 Version: 1.0
+生效日期 Effective Date: 2026-11-13
 
-Copyright (c) 2026 FCA Memory Atlas contributors
+版权所有 (c) 2026 FCA Memory Atlas contributors（下称“版权方” / "Licensor"）。
+保留所有权利。All rights reserved.
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+本协议适用于本仓库中的 FCA Memory Atlas 软件、源代码、文档与相关材料（合称“本软件”）。
+本协议以中文版本为准，英文摘要仅供方便理解，不构成额外授权。
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
+## 1. 允许的使用（Permitted Use）
 
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+在遵守本协议全部条款的前提下，版权方授予你一项有限的、非排他的、不可转让、可撤销的许可，允许你仅为**个人、非商业目的**：
+
+(a) 查看、阅读、学习本软件的源代码；
+(b) 在本机编译并运行**未经修改的官方版本**；
+(c) 为自己的个人使用，在本机修改源代码（“个人修改版”）；但个人修改版**不得以任何形式分发、公开、上传或提供给任何第三方**。
+
+## 2. 禁止行为（Prohibited Use）
+
+未经版权方事先书面授权，严禁：
+
+(a) **任何商业用途**：包括但不限于企业内部生产/商业运营、收费软件或服务、SaaS/云服务、商业产品集成、外包交付、以营利为目的的使用、演示或培训；
+(b) **分发、再许可、出售、出租、出借、镜像或提供**本软件或其任何部分（无论是否修改）；
+(c) **二次修改后分发**：将修改版、衍生作品、补丁等以任何渠道公开或提供给第三方，包括公开代码托管平台（如 GitHub/Gitee 等公开 fork）、私有分发、安装包、容器镜像、npm/包管理器等；
+(d) 移除、隐藏或篡改本软件中的版权声明、许可声明或归属标识；
+(e) 将本软件或其修改版用于训练、微调或构建与本软件实质相同或竞争的产品/服务；
+(f) 以任何方式暗示版权方对你的使用、修改或分发提供认可、担保或背书。
+
+## 3. 第三方组件（Third-Party Components）
+
+本软件包含或依赖的第三方组件（包括但不限于 Electron、Chromium、Node.js、SQLite、Unity 引擎及其 URP 渲染管线、字体等）分别适用其各自的许可证；本协议不改变、不替代亦不扩展这些第三方许可证。你须同时遵守相应第三方许可条款。
+
+## 4. 终止（Termination）
+
+你违反本协议任一条款时，本协议授予的许可**立即自动终止**，你必须立即停止使用本软件并删除/销毁你持有或控制的所有副本（含个人修改版）。版权方保留追究法律责任的权利。
+
+## 5. 无担保与责任限制（No Warranty; Limitation of Liability）
+
+本软件按“现状”（AS IS）提供，不附带任何明示或默示担保，包括但不限于适销性、特定用途适用性与非侵权担保。在适用法律允许的最大范围内，版权方不对因使用或无法使用本软件而产生的任何直接、间接、附带、特殊、惩罚性或后果性损害承担责任。
+
+## 6. 历史版本（Prior Versions）
+
+本协议仅适用于自 v0.4.0 起发布的版本。v0.4.0 之前已发布的版本继续适用其发布当时随附的许可证（MIT）。若你此前依据 MIT 许可证合法获得了旧版本，你对该等旧版本的权利不因本协议而改变。
+
+---
+
+English Summary (non-binding, Chinese text governs):
+Personal, non-commercial use only. You may view/learn from the source, run unmodified official builds locally, and modify the source solely for your own personal local use. Any commercial use is prohibited. Any distribution, sublicensing, sale, mirroring, or making available of the software or of modified/derivative versions to any third party is prohibited. Third-party components remain under their own licenses. Violation terminates this license immediately; the software is provided "as is" without warranty. Prior versions (pre-v0.4.0) remain under the licenses bundled with them at release time (MIT).
