@@ -1,0 +1,220 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>FCA Memory Atlas · 星云渲染 Demo（TEST FIXTURE）</title>
+<script>
+  // early error capture (module scripts are deferred, so this runs first) — QA/capture reads these
+  window.__FCA_PAGE_ERRORS__ = [];
+  window.addEventListener('error', function (e) {
+    var msg = (e.error && e.error.stack) || e.message || 'unknown error';
+    window.__FCA_PAGE_ERRORS__.push(msg);
+    if (!window.__FCA_NEBULA_ERROR__) window.__FCA_NEBULA_ERROR__ = msg;
+  });
+  window.addEventListener('unhandledrejection', function (e) {
+    var msg = 'unhandledrejection: ' + ((e.reason && e.reason.stack) || e.reason);
+    window.__FCA_PAGE_ERRORS__.push(msg);
+    if (!window.__FCA_NEBULA_ERROR__) window.__FCA_NEBULA_ERROR__ = msg;
+  });
+</script>
+<style>
+  :root {
+    --bg: #04060d;
+    --panel: rgba(8, 13, 24, 0.80);
+    --panel-2: rgba(10, 16, 29, 0.92);
+    --line: rgba(128, 164, 214, 0.16);
+    --line-strong: rgba(150, 190, 245, 0.28);
+    --text: #c9d8ee;
+    --text-dim: rgba(168, 190, 220, 0.62);
+    --text-faint: rgba(130, 155, 190, 0.42);
+    --accent: #7fd0f0;
+    --accent-2: #b9a6ff;
+    --warn: #e6c07a;
+    --font: "Segoe UI Variable Text", "Segoe UI", "PingFang SC", "Microsoft YaHei UI", system-ui, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text); font-family: var(--font); overflow: hidden; }
+  #stage { position: fixed; inset: 0; }
+  .topbar {
+    position: fixed; top: 0; left: 0; right: 0; height: 54px; z-index: 10;
+    display: flex; align-items: center; gap: 18px; padding: 0 22px;
+    background: linear-gradient(to bottom, rgba(4,7,14,0.92), rgba(4,7,14,0.55) 70%, rgba(4,7,14,0));
+    pointer-events: none;
+  }
+  .topbar .brand { display: flex; align-items: baseline; gap: 12px; pointer-events: auto; }
+  .brand .mark { font-size: 15px; letter-spacing: 0.34em; font-weight: 300; color: #e3edff; }
+  .brand .sub { font-size: 10px; letter-spacing: 0.26em; color: var(--text-faint); text-transform: uppercase; }
+  .fixture-badge {
+    pointer-events: auto; font-size: 10px; letter-spacing: 0.08em; color: var(--warn);
+    border: 1px solid rgba(230, 192, 122, 0.35); background: rgba(230, 192, 122, 0.07);
+    padding: 4px 9px; border-radius: 3px; white-space: nowrap;
+  }
+  .topbar .spacer { flex: 1; }
+  .topbar .engine {
+    pointer-events: auto; display: flex; gap: 14px; align-items: center;
+    font-size: 10.5px; letter-spacing: 0.06em; color: var(--text-dim);
+    background: var(--panel); border: 1px solid var(--line); border-radius: 4px;
+    padding: 7px 12px; backdrop-filter: blur(10px);
+  }
+  .engine b { color: #dfeafc; font-weight: 500; }
+  .engine .dot { width: 6px; height: 6px; border-radius: 50%; background: #6fd3a8; box-shadow: 0 0 8px rgba(111,211,168,.8); }
+  .left {
+    position: fixed; left: 18px; top: 66px; width: 236px; z-index: 10;
+    background: var(--panel); border: 1px solid var(--line); border-radius: 6px;
+    backdrop-filter: blur(12px); padding: 14px 14px 12px; pointer-events: auto;
+  }
+  .right {
+    position: fixed; right: 18px; top: 66px; bottom: 54px; width: 312px; z-index: 10;
+    background: var(--panel); border: 1px solid var(--line); border-radius: 6px;
+    backdrop-filter: blur(12px); padding: 14px 15px 12px; overflow-y: auto; pointer-events: auto;
+    scrollbar-width: thin; scrollbar-color: rgba(130,160,200,.3) transparent;
+  }
+  .left h1, .right h2 { margin: 0 0 10px; font-size: 11px; font-weight: 500; letter-spacing: 0.2em; color: var(--text-faint); text-transform: uppercase; }
+  .right h2:not(:first-child) { margin-top: 16px; padding-top: 13px; border-top: 1px solid var(--line); }
+  .seg { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 12px; }
+  .seg button {
+    font: inherit; font-size: 11px; color: var(--text-dim); background: rgba(120,160,220,0.06);
+    border: 1px solid var(--line); border-radius: 3px; padding: 5px 9px; cursor: pointer;
+    transition: all .15s ease; letter-spacing: 0.03em;
+  }
+  .seg button:hover { color: var(--text); border-color: var(--line-strong); background: rgba(120,170,240,0.12); }
+  .seg button.on { color: #eaf4ff; border-color: rgba(127,208,240,0.55); background: rgba(90,190,235,0.16); box-shadow: 0 0 14px rgba(90,190,235,0.12) inset; }
+  .field { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 7px 0; font-size: 11px; color: var(--text-dim); }
+  .field select {
+    font: inherit; font-size: 11px; color: var(--text); background: #0a1220; border: 1px solid var(--line);
+    border-radius: 3px; padding: 4px 6px; outline: none; min-width: 108px;
+  }
+  .field input[type=range] { width: 132px; accent-color: #6fc3e8; }
+  .btnrow { display: flex; gap: 6px; margin-top: 9px; }
+  .btnrow button {
+    flex: 1; font: inherit; font-size: 10.5px; color: var(--text-dim); background: rgba(120,160,220,0.06);
+    border: 1px solid var(--line); border-radius: 3px; padding: 6px 4px; cursor: pointer;
+  }
+  .btnrow button:hover { color: var(--text); border-color: var(--line-strong); }
+  .swatches { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 10px; }
+  .sw { display: flex; align-items: center; gap: 7px; font-size: 10.5px; color: var(--text-dim); padding: 2px 0; }
+  .sw i { width: 9px; height: 9px; border-radius: 50%; flex: none; box-shadow: 0 0 7px currentColor; }
+  .sw i.line { border-radius: 1px; height: 2px; width: 14px; }
+  .note { font-size: 10.5px; line-height: 1.85; color: var(--text-dim); }
+  .note b { color: #dbe8fa; font-weight: 500; }
+  .note .k { color: var(--accent); }
+  .statline { display: flex; justify-content: space-between; font-size: 10.5px; color: var(--text-dim); padding: 3px 0; border-bottom: 1px dotted rgba(128,164,214,0.10); }
+  .statline b { color: #e2edfc; font-weight: 500; font-variant-numeric: tabular-nums; }
+  .detail {
+    margin-top: 10px; padding: 10px 11px; border: 1px solid var(--line-strong); border-radius: 4px;
+    background: rgba(12, 20, 36, 0.7); display: none;
+  }
+  .detail.show { display: block; }
+  .detail .dt { font-size: 12.5px; color: #f0f6ff; line-height: 1.5; margin-bottom: 6px; word-break: break-word; }
+  .detail .dm { font-size: 10px; line-height: 1.9; color: var(--text-dim); }
+  .detail .dm span { color: var(--accent); }
+  .hintbar {
+    position: fixed; left: 18px; right: 18px; bottom: 14px; height: 30px; z-index: 10;
+    display: flex; align-items: center; gap: 18px; font-size: 10px; letter-spacing: 0.04em;
+    color: var(--text-faint); pointer-events: none;
+  }
+  .hintbar kbd {
+    font: inherit; font-size: 9.5px; color: var(--text-dim); border: 1px solid var(--line);
+    border-bottom-color: rgba(150,190,245,.32); border-radius: 2px; padding: 1px 5px; background: rgba(120,160,220,.05);
+  }
+  .hintbar .hint { display: flex; align-items: center; gap: 6px; }
+  .hintbar .fill { flex: 1; }
+  .hintbar .fps { color: var(--text-dim); font-variant-numeric: tabular-nums; }
+  .hintbar .fps b { color: #cfe9f8; font-weight: 500; }
+  .hidden { display: none !important; }
+  .dotline { height: 1px; background: linear-gradient(to right, rgba(128,164,214,.22), transparent); margin: 12px 0; }
+  .errbox { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; z-index: 40; background: #04060d; }
+  .errbox.show { display: flex; }
+  .errbox div { max-width: 620px; font-size: 12px; line-height: 2; color: var(--text-dim); text-align: center; }
+  .errbox b { color: #ffb4b4; }
+</style>
+</head>
+<body>
+<div id="stage"></div>
+
+<div class="topbar" id="topbar">
+  <div class="brand">
+    <div class="mark">FCA · MEMORY ATLAS</div>
+    <div class="sub">Nebula Renderer</div>
+  </div>
+  <div class="fixture-badge" id="fixtureBadge">TEST FIXTURE · 合成数据，非真实记忆</div>
+  <div class="spacer"></div>
+  <div class="engine">
+    <div class="dot"></div>
+    <span id="engineInfo">WebGL2</span>
+  </div>
+</div>
+
+<div class="left" id="leftPanel">
+  <h1>数据场景 / 档位</h1>
+  <div class="seg" id="scenarioBtns">
+    <button data-scenario="empty">空库</button>
+    <button data-scenario="100">100 节点</button>
+    <button data-scenario="300">300</button>
+    <button data-scenario="1000">1000</button>
+    <button data-scenario="3000">3000</button>
+    <button data-scenario="10000">10000</button>
+  </div>
+  <div class="seg" id="qualityBtns">
+    <button data-quality="ultra">ultra</button>
+    <button data-quality="high">high</button>
+    <button data-quality="medium">medium</button>
+    <button data-quality="low">low</button>
+    <button data-quality="off">off</button>
+  </div>
+  <div class="seg" id="pipelineBtns">
+    <button data-pipeline="volume">方案A · 体积星云</button>
+    <button data-pipeline="baked">方案B · 预烘焙</button>
+  </div>
+  <div class="field"><span>星云强度</span><input id="mapNebula" type="range" min="0" max="2" step="0.05" value="1"></div>
+  <div class="field"><span>尘埃强度</span><input id="mapDust" type="range" min="0" max="2" step="0.05" value="1"></div>
+  <div class="field"><span>关系亮度</span><input id="mapEdge" type="range" min="0" max="1.6" step="0.05" value="0.85"></div>
+  <div class="field"><span>背景星点</span><input id="mapStars" type="range" min="0" max="2" step="0.05" value="1"></div>
+  <div class="btnrow">
+    <button id="btnFit">适应屏幕</button>
+    <button id="btnFocus1">聚焦一阶</button>
+    <button id="btnFocus2">二阶</button>
+  </div>
+</div>
+
+<div class="right" id="rightPanel">
+  <h2>图例 · 聚类 color_hint</h2>
+  <div class="swatches" id="hintSwatches"></div>
+  <h2>记忆 / 实体类型</h2>
+  <div class="swatches" id="typeSwatches"></div>
+  <h2>关系类型（光丝）</h2>
+  <div class="swatches" id="relSwatches"></div>
+  <h2>映射说明</h2>
+  <div class="note" id="mappingNote"></div>
+  <h2>数据</h2>
+  <div id="statsBox"></div>
+  <div class="detail" id="detailBox"></div>
+</div>
+
+<div class="hintbar" id="hintbar">
+  <div class="hint"><kbd>拖动</kbd> 平移</div>
+  <div class="hint"><kbd>滚轮</kbd> 缩放</div>
+  <div class="hint"><kbd>Shift+拖动</kbd> 框选</div>
+  <div class="hint"><kbd>Ctrl+点击</kbd> 多选</div>
+  <div class="hint"><kbd>点击</kbd> 详情</div>
+  <div class="hint"><kbd>双击</kbd> 聚焦</div>
+  <div class="hint"><kbd>右键</kbd> 菜单事件</div>
+  <div class="fill"></div>
+  <div class="fps" id="fpsBox">FPS —</div>
+</div>
+
+<div class="errbox" id="errbox"><div><b>模块加载失败</b><br>
+  Chrome/Edge 直接双击 file:// 打开时，ES module 会被 CORS 阻止。<br>
+  请用项目自带 Electron 打开（capture 脚本）或用任意静态服务器访问本目录；Electron 内可直接运行。
+</div></div>
+
+<script type="module" src="./demo.js"></script>
+<script>
+  // friendly fallback if the ES module above never boots (file:// CORS restriction in normal browsers)
+  setTimeout(function () {
+    if (!window.__FCA_NEBULA_READY__) document.getElementById('errbox').classList.add('show');
+  }, 2500);
+</script>
+</body>
+</html>

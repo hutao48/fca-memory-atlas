@@ -1,0 +1,39 @@
+﻿{
+  "name": "dsh-plugin-fca-memory",
+  "version": "0.1.4",
+  "private": true,
+  "description": "FCA Memory Atlas bridge: connects DeepSeek Harness sessions to a local FCA cognitive runtime, exposes memory tools and automatically stores conversation memories.",
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "deepseek-harness",
+    "memory",
+    "fca"
+  ],
+  "type": "module",
+  "main": "main.js",
+  "exports": {
+    ".": "./main.js",
+    "./locale/*.json": "./locale/*.json",
+    "./icon": "./icon.svg"
+  },
+  "files": [
+    "main.js",
+    "src",
+    "cordis.patch.yml",
+    "locale/*.json",
+    "icon.svg",
+    "README.md"
+  ],
+  "icon": "./icon.svg",
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "engines": {
+    "fcaRuntime": ">=0.1.0 <0.2.0"
+  }
+}
+
+

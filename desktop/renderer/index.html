@@ -1,0 +1,190 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
+  <title>FCA Memory Atlas</title>
+  <link rel="stylesheet" href="./styles/tokens.css">
+  <link rel="stylesheet" href="./styles/base.css">
+  <link rel="stylesheet" href="./styles/layout.css">
+  <link rel="stylesheet" href="./styles/components.css">
+  <link rel="stylesheet" href="./styles/atlas.css">
+  <link rel="stylesheet" href="./styles/onboarding.css">
+</head>
+<body>
+  <div id="app" class="app" data-ready="false">
+
+    <!-- ======================= 顶栏（含原生窗口按钮覆盖区） ======================= -->
+    <header class="titlebar" id="titlebar">
+      <div class="titlebar__brand">
+        <div class="brand-mark" aria-hidden="true">
+          <svg viewBox="0 0 32 32" width="26" height="26" fill="none" stroke="currentColor" stroke-width="1.1">
+            <circle cx="16" cy="7" r="1.7" fill="currentColor" stroke="none"></circle>
+            <circle cx="7" cy="19" r="1.3" fill="currentColor" stroke="none" opacity=".8"></circle>
+            <circle cx="24" cy="15" r="1.5" fill="currentColor" stroke="none" opacity=".9"></circle>
+            <circle cx="19" cy="26" r="1.1" fill="currentColor" stroke="none" opacity=".6"></circle>
+            <circle cx="27" cy="24" r=".9" fill="currentColor" stroke="none" opacity=".45"></circle>
+            <circle cx="11" cy="11" r=".8" fill="currentColor" stroke="none" opacity=".45"></circle>
+            <path d="M16 7 7 19l9 7 8-11-8-8-5 4" opacity=".35"></path>
+            <path d="M24 15 19 26M11 11l5-4" opacity=".22"></path>
+          </svg>
+        </div>
+        <div class="brand-text">
+          <span class="brand-name">FCA Memory Atlas</span>
+          <span class="brand-sub">Alpha 0.1</span>
+        </div>
+      </div>
+
+      <div class="titlebar__search" id="global-search">
+        <span class="search-icon" data-icon="search" aria-hidden="true"></span>
+        <input id="search-input" type="text" autocomplete="off" spellcheck="false"
+               placeholder="搜索记忆、人物、项目…" aria-label="全局搜索">
+        <kbd class="search-kbd">Ctrl K</kbd>
+        <div class="search-results" id="search-results" hidden></div>
+      </div>
+
+      <div class="titlebar__actions">
+        <select id="time-filter" class="mini-select time-filter" aria-label="时间筛选" title="时间筛选">
+          <option value="all">全部时间</option>
+          <option value="today">今天</option>
+          <option value="week">本周</option>
+          <option value="month">本月</option>
+          <option value="quarter">本季度</option>
+          <option value="year">今年</option>
+        </select>
+        <span class="topbar-sep" aria-hidden="true"></span>
+        <div class="segmented" id="view-tabs" role="tablist" aria-label="视图切换"></div>
+        <span class="topbar-sep" aria-hidden="true"></span>
+        <button class="icon-btn" id="btn-undo" title="撤销 (Ctrl+Z)" aria-label="撤销" data-icon="undo"></button>
+        <button class="icon-btn" id="btn-redo" title="重做 (Ctrl+Shift+Z)" aria-label="重做" data-icon="redo"></button>
+        <span class="topbar-sep" aria-hidden="true"></span>
+        <button class="icon-btn" id="btn-refresh" title="刷新图谱 (F5)" aria-label="刷新图谱" data-icon="refresh"></button>
+        <button class="icon-btn" id="btn-import" title="导入记忆（FCA 格式）" aria-label="导入" data-icon="import"></button>
+        <button class="icon-btn" id="btn-export" title="导出数据" aria-label="导出" data-icon="export"></button>
+        <button class="icon-btn" id="btn-settings" title="设置" aria-label="设置" data-icon="settings"></button>
+        <button class="runtime-pill" id="runtime-pill" title="本地运行时状态">
+          <span class="runtime-pill__dot"></span>
+          <span class="runtime-pill__label">运行时</span>
+        </button>
+      </div>
+      <div class="titlebar__drag" aria-hidden="true"></div>
+    </header>
+
+    <!-- ======================= 三栏主体 ======================= -->
+    <div class="app-body" id="app-body">
+
+      <aside class="panel panel--left" id="left-panel" aria-label="导航与筛选">
+        <div class="panel__header">
+          <span class="panel__title">导航</span>
+          <button class="icon-btn icon-btn--sm" id="btn-collapse-left" title="收起左栏" aria-label="收起左栏" data-icon="panel-left"></button>
+        </div>
+        <div class="panel__scroll fca-scroll" id="left-scroll">
+          <nav class="nav" id="nav-primary" aria-label="主视图导航"></nav>
+          <section class="nav-section" id="nav-types">
+            <div class="nav-section__header">
+              <span class="nav-section__title">记忆分类</span>
+              <span class="nav-section__hint">点击筛选</span>
+            </div>
+            <div class="nav-section__body" id="nav-types-body"></div>
+          </section>
+          <section class="nav-section" id="nav-projects">
+            <div class="nav-section__header">
+              <span class="nav-section__title">项目</span>
+              <button class="icon-btn icon-btn--xs" id="nav-projects-more" title="显示全部项目" aria-label="显示全部项目" data-icon="more"></button>
+            </div>
+            <div class="nav-section__body" id="nav-projects-body"></div>
+          </section>
+          <section class="nav-section" id="nav-tags">
+            <div class="nav-section__header">
+              <span class="nav-section__title">标签</span>
+              <span class="nav-section__hint" id="nav-tags-count"></span>
+            </div>
+            <div class="nav-section__body nav-section__body--tags" id="nav-tags-body"></div>
+          </section>
+          <section class="nav-section" id="nav-favorites">
+            <div class="nav-section__header">
+              <span class="nav-section__title">收藏</span>
+              <span class="nav-section__hint" id="nav-favorites-count"></span>
+            </div>
+            <div class="nav-section__body" id="nav-favorites-body"></div>
+          </section>
+          <section class="nav-section" id="nav-dataset">
+            <div class="nav-section__header">
+              <span class="nav-section__title">数据源</span>
+            </div>
+            <div class="nav-section__body" id="nav-dataset-body"></div>
+          </section>
+        </div>
+        <div class="panel__footer">
+          <label class="panel__footer-label" for="layout-preset">布局预设</label>
+          <select id="layout-preset" class="mini-select" aria-label="布局预设">
+            <option value="default">默认三栏</option>
+            <option value="wide">宽画布</option>
+            <option value="focus">专注阅读</option>
+          </select>
+        </div>
+      </aside>
+
+      <div class="resizer resizer--left" id="resizer-left" role="separator" aria-orientation="vertical" title="拖拽调整左栏宽度（双击恢复默认）"></div>
+
+      <main class="content" id="content">
+        <div class="view-host" id="view-host"></div>
+      </main>
+
+      <div class="resizer resizer--right" id="resizer-right" role="separator" aria-orientation="vertical" title="拖拽调整右栏宽度（双击恢复默认）"></div>
+
+      <aside class="panel panel--right" id="right-panel" aria-label="详情面板">
+        <div class="panel__header">
+          <span class="panel__title" id="right-title">详情</span>
+          <div class="panel__header-actions">
+            <button class="icon-btn icon-btn--sm" id="btn-detail-more" title="更多操作" aria-label="更多操作" data-icon="more"></button>
+            <button class="icon-btn icon-btn--sm" id="btn-collapse-right" title="收起右栏" aria-label="收起右栏" data-icon="panel-right"></button>
+          </div>
+        </div>
+        <div class="panel__scroll fca-scroll" id="detail-scroll">
+          <div class="detail-empty" id="detail-empty">
+            <div class="detail-empty__orb" aria-hidden="true"></div>
+            <p class="detail-empty__title">未选中星体</p>
+            <p class="detail-empty__desc">在左侧星云画布中点选一颗记忆星体，<br>这里会显示它的完整记忆、关系与版本历史。</p>
+          </div>
+        </div>
+      </aside>
+    </div>
+
+    <!-- ======================= 底部状态栏 ======================= -->
+    <footer class="statusbar" id="statusbar">
+      <div class="statusbar__left">
+        <span class="status-dot" id="status-runtime-dot" data-state="stopped"></span>
+        <span class="status-seg status-seg--strong" id="status-runtime-label">本地运行时：未连接</span>
+        <span class="status-seg status-seg--muted" id="status-runtime-version"></span>
+        <button class="statusbar__action" id="status-runtime-action" hidden>启动</button>
+      </div>
+      <div class="statusbar__center">
+        <span class="status-seg" id="status-counts"></span>
+        <span class="status-seg status-seg--muted" id="status-db"></span>
+      </div>
+      <div class="statusbar__right">
+        <span class="status-seg status-seg--sync" id="status-sync"><span class="sync-dot"></span><span id="status-sync-label">实时同步：未连接</span></span>
+        <span class="status-seg status-seg--muted" id="status-fps"></span>
+        <label class="status-seg status-seg--quality">
+          <span>画质</span>
+          <select id="quality-select" class="mini-select mini-select--inline" aria-label="渲染画质">
+            <option value="ultra">极致</option>
+            <option value="high">高</option>
+            <option value="medium">中</option>
+            <option value="low">低</option>
+            <option value="off">关闭特效</option>
+          </select>
+        </label>
+        <span class="status-seg status-seg--muted" id="status-app-version"></span>
+      </div>
+    </footer>
+
+    <div class="overlay-root" id="overlay-root"></div>
+  </div>
+
+  <script type="module" src="./app.js"></script>
+</body>
+</html>

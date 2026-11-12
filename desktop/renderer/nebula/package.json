@@ -1,0 +1,12 @@
+{
+  "name": "@fca/nebula-renderer",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "FCA Memory Atlas — WebGL2 data-driven nebula renderer (zero dependencies). ES modules are loaded directly by the Electron renderer via <script type=\"module\">.",
+  "main": "index.js",
+  "exports": {
+    ".": "./index.js",
+    "./fixtures": "./fixtures.js"
+  }
+}

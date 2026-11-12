@@ -1,0 +1,43 @@
+# dependencies / build
+node_modules/
+.cache/
+dist/
+build/
+*.log
+
+# local runtime data (never commit user data) — 仅匹配仓库根/明确路径，勿误伤源码目录
+/data/
+*.db
+*.db-wal
+*.db-shm
+/runtime/data/
+/runtime/logs/
+/runtime/backups/
+/logs/
+/backups/
+/events/
+
+# test / temp
+.tmp/
+tmp/
+coverage/
+*.tsbuildinfo
+__pycache__/
+*.pyc
+
+# OS
+Thumbs.db
+desktop.ini
+.DS_Store
+
+# artifacts: keep screenshots & reports, ignore raw large dumps and packaged installer binaries
+artifacts/raw/
+artifacts/temp/
+artifacts/installer/
+
+# vendored binaries (downloaded by scripts/fetch-*.js; not committed)
+vendor/*
+!vendor/README.md
+
+# installer staging output
+installer/.staging/

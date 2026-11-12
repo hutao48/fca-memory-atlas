@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "FCA 记忆桥",
+    "description": "把 DeepSeek Harness 连接到本机 FCA Memory Atlas 运行时：Runtime 健康状态、记忆检索/写入工具，以及可选的会话事件采集。"
+  }
+}

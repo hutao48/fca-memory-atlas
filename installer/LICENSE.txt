@@ -1,0 +1,34 @@
+FCA Memory Atlas — Alpha 0.1 License Notice
+============================================
+
+Copyright (c) 2026 FCA Project. All rights reserved.
+
+This software is an internal alpha build of FCA Memory Atlas, distributed for
+evaluation by the FCA project team and its designated testers only.
+
+Terms
+-----
+1. FCA Memory Atlas and its bundled FCA Local Runtime are proprietary software
+   of the FCA Project. No permission is granted to redistribute, sublicense,
+   sell, or publish this software or its binaries without prior written
+   approval from the FCA Project lead.
+2. Evaluation copies may be installed and used on machines owned or controlled
+   by the FCA project and its designated testers for the purpose of evaluating
+   Alpha 0.1.
+3. This is alpha-quality software. It is provided "AS IS", without warranty of
+   any kind, express or implied, including but not limited to the warranties of
+   merchantability, fitness for a particular purpose, and non-infringement.
+   Back up your data before upgrading, and do not use this build as the only
+   copy of important information.
+4. All memory data you create is stored locally on this machine (default:
+   %LOCALAPPDATA%\FCA-Memory-Atlas). The FCA Project does not collect or upload
+   it. Network access is only used for the LLM Gateway when you configure an
+   external model provider.
+5. Third-party components bundled with this installer:
+   - Electron 38.2.1 — MIT license — https://github.com/electron/electron
+   - Chromium / V8 / Node.js — see LICENSES.chromium.html in the install dir
+   - Node.js 24 (node/node.exe) — MIT license — https://nodejs.org
+   - NSIS installer runtime — zlib/libpng license — https://nsis.sourceforge.io
+6. Uninstalling the application removes program files. User data in the data
+   directory is preserved by default and can be deleted from the uninstaller
+   prompt or manually after uninstalling.

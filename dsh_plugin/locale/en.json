@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "FCA memory bridge",
+    "description": "Connects DeepSeek Harness to the local FCA Memory Atlas runtime: /health status, memory search and store tools, and optional session event capture."
+  }
+}

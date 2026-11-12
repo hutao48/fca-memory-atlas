@@ -1,0 +1,42 @@
+# ============================================================================
+# FCA Memory Atlas bridge — DSH bundle patch
+# ============================================================================
+# Inserts the single Host plugin row that connects DeepSeek Harness to the
+# local FCA Local Runtime (http://127.0.0.1:17860 by default).
+#
+# A matching override replaces the complete `config`, so keep every setting
+# this plugin reads in this block; defaults for omitted fields come from the
+# plugin's exported Config schema (see src/config.js).
+#
+# Install (never hand-edit the profile's own cordis.patch.yml):
+#   plugin_manager action=install_bundle target=<absolute path to this directory>
+# ============================================================================
+- insert:
+    - id: fca-memory-bridge
+      name: dsh-plugin-fca-memory
+      config:
+        # Local-only HTTP origin of the FCA Local Runtime.
+        runtimeUrl: http://127.0.0.1:17860
+        # Start runtime/bin/fca-runtime.js with a detected Node >= 22.5 runtime
+        # when /health does not answer. The runtime script is located relative
+        # to this package (../runtime/bin) unless runtimeScriptPath is set.
+        autoStartRuntime: true
+        # Safest useful capture level: one small audit event per finished turn,
+        # no message bodies. off | user-messages | turn-summaries | full
+        capturePolicy: turn-summaries
+        # Fully automatic memory writing (v0.1.2+):
+        #   off | user-messages (save every user message from every DSH session)
+        #       | all (user + assistant messages)
+        # Captured text is redacted, length-capped and stored only in the local
+        # FCA Runtime; every memory is versioned and carries the DSH session id.
+        autoMemory: user-messages
+        autoMemoryMinChars: 8
+        autoMemoryMaxChars: 2000
+        autoMemoryMaxPerHour: 120
+        autoMemoryMemoryType: episodic
+        autoMemoryTags:
+          - DSH自动记忆
+        # Prompt digest injection is opt-in.
+        injectContext: false
+        # Extra secrets redaction beyond the built-in patterns.
+        redactPatterns: []

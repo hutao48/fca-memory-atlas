@@ -1,0 +1,30 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Runtime smoke (init + serve + 23 checks)
+        env:
+          FCA_HOME: ${{ github.workspace }}\.ci-home
+        run: node scripts/verify.js --fca-home="$env:FCA_HOME" --port=17880
+
+      - name: Unit + integration + security tests
+        run: node scripts/run-tests.js --unit --integration --security
+
+      - name: Runtime test suite
+        run: node --test "runtime/test/*.test.js"
+
+      - name: Plugin unit tests
+        run: node --test "tests/unit/plugin/*.test.js"

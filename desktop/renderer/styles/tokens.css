@@ -1,0 +1,119 @@
+/* ============================================================================
+ * FCA Memory Atlas — 设计令牌（深空专业暗色）
+ * 唯一颜色/间距/字号来源；视图不得硬编码颜色，必须引用这些变量。
+ * ========================================================================== */
+
+:root {
+  /* 背景层（由深到浅） */
+  --fca-bg-0: #070b12;
+  --fca-bg-1: #0a1019;
+  --fca-bg-2: #0e1622;
+  --fca-bg-3: #131d2c;
+  --fca-bg-4: #1a2637;
+  --fca-bg-5: #223148;
+
+  /* 描边 */
+  --fca-border: #1e2b3d;
+  --fca-border-soft: rgba(30, 43, 61, 0.6);
+  --fca-border-strong: #2c3d54;
+
+  /* 文本 */
+  --fca-text: #dbe6f2;
+  --fca-text-dim: #9fb0c4;
+  --fca-text-muted: #6b7f96;
+  --fca-text-faint: #4c5f75;
+
+  /* 强调色（克制、冷色系） */
+  --fca-accent: #7fb8d9;
+  --fca-accent-strong: #a8d6ef;
+  --fca-accent-soft: rgba(127, 184, 217, 0.13);
+  --fca-accent-line: rgba(127, 184, 217, 0.32);
+  --fca-gold: #d8b978;
+  --fca-gold-soft: rgba(216, 185, 120, 0.12);
+  --fca-rose: #e08f9f;
+  --fca-green: #7fc8a9;
+  --fca-violet: #a08cf0;
+  --fca-cyan: #7fd8e8;
+  --fca-blue: #6f9fe8;
+  --fca-magenta: #d47fd0;
+  --fca-danger: #e07070;
+  --fca-danger-soft: rgba(224, 112, 112, 0.12);
+  --fca-warning: #d8b978;
+  --fca-success: #7fc8a9;
+
+  /* 圆角 */
+  --fca-radius-xs: 3px;
+  --fca-radius-sm: 4px;
+  --fca-radius: 6px;
+  --fca-radius-lg: 10px;
+  --fca-radius-xl: 14px;
+
+  /* 间距（4 的倍数） */
+  --fca-space-1: 4px;
+  --fca-space-2: 8px;
+  --fca-space-3: 12px;
+  --fca-space-4: 16px;
+  --fca-space-5: 24px;
+  --fca-space-6: 32px;
+  --fca-space-7: 48px;
+
+  /* 字体 */
+  --fca-font-ui: 'Segoe UI Variable Text', 'Segoe UI', 'Microsoft YaHei UI', 'Microsoft YaHei', system-ui, sans-serif;
+  --fca-font-mono: 'Cascadia Mono', 'Cascadia Code', 'Consolas', 'Microsoft YaHei UI', monospace;
+  --fca-text-2xs: 10px;
+  --fca-text-xs: 11px;
+  --fca-text-sm: 12px;
+  --fca-text-md: 13px;
+  --fca-text-lg: 15px;
+  --fca-text-xl: 19px;
+  --fca-text-2xl: 24px;
+  --fca-leading-tight: 1.25;
+  --fca-leading: 1.5;
+  --fca-tracking-wide: 0.08em;
+  --fca-tracking-wide2: 0.14em;
+
+  /* 阴影与光晕 */
+  --fca-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.35);
+  --fca-shadow-panel: 0 10px 32px rgba(0, 0, 0, 0.45);
+  --fca-shadow-pop: 0 16px 48px rgba(0, 0, 0, 0.6);
+  --fca-glow-accent: 0 0 0 1px var(--fca-accent-line), 0 0 24px rgba(127, 184, 217, 0.1);
+
+  /* 尺寸 */
+  --fca-titlebar-h: 46px;
+  --fca-statusbar-h: 26px;
+  --fca-left-width: 264px;
+  --fca-right-width: 340px;
+  --fca-left-min: 200px;
+  --fca-left-max: 420px;
+  --fca-right-min: 280px;
+  --fca-right-max: 560px;
+  --fca-control-h: 28px;
+  --fca-control-h-sm: 24px;
+  --fca-native-controls-space: 148px;
+
+  /* 动效 */
+  --fca-dur-fast: 120ms;
+  --fca-dur: 180ms;
+  --fca-dur-slow: 320ms;
+  --fca-ease: cubic-bezier(0.2, 0.7, 0.2, 1);
+  --fca-ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* 减少动画偏好 */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --fca-dur-fast: 0ms;
+    --fca-dur: 0ms;
+    --fca-dur-slow: 0ms;
+  }
+}
+
+/* 截图模式：关闭所有动画/过渡，保证帧稳定 */
+html.capture-mode *,
+html.capture-mode *::before,
+html.capture-mode *::after {
+  animation-duration: 0s !important;
+  animation-delay: 0s !important;
+  transition-duration: 0s !important;
+  transition-delay: 0s !important;
+}

@@ -1,0 +1,612 @@
+/* ============================================================================
+ * FCA Memory Atlas — 星云画布页（views/atlas.js）
+ * ========================================================================== */
+
+.view-atlas {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
+  display: flex;
+  background: #04070d;
+  overflow: hidden;
+}
+
+/* 真实 WebGL2 画布宿主（nebula renderer 挂载点） */
+.atlas-canvas {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+}
+
+.atlas-canvas canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+/* 画布上的可交互覆盖层 */
+.atlas-overlay {
+  position: absolute;
+  z-index: 6;
+  display: flex;
+  align-items: center;
+  gap: var(--fca-space-2);
+  pointer-events: none;
+}
+
+.atlas-overlay > * {
+  pointer-events: auto;
+}
+
+.atlas-overlay--top-left {
+  top: var(--fca-space-3);
+  left: var(--fca-space-3);
+}
+
+.atlas-overlay--top-right {
+  top: var(--fca-space-3);
+  right: var(--fca-space-3);
+  flex-direction: column;
+  align-items: flex-end;
+}
+
+.atlas-overlay--bottom-left {
+  left: var(--fca-space-3);
+  bottom: var(--fca-space-3);
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--fca-space-2);
+}
+
+.atlas-overlay--bottom-center {
+  left: 50%;
+  bottom: var(--fca-space-3);
+  transform: translateX(-50%);
+}
+
+.atlas-overlay--bottom-right {
+  right: var(--fca-space-3);
+  bottom: var(--fca-space-3);
+}
+
+/* 玻璃质感工具条（深空 UI，不是霓虹风） */
+.atlas-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px;
+  border: 1px solid rgba(44, 61, 84, 0.75);
+  border-radius: var(--fca-radius-lg);
+  background: rgba(10, 16, 25, 0.72);
+  backdrop-filter: blur(10px);
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.42);
+}
+
+.atlas-toolbar .icon-btn {
+  width: 26px;
+  height: 26px;
+}
+
+.atlas-toolbar__divider {
+  width: 1px;
+  height: 16px;
+  margin: 0 2px;
+  background: var(--fca-border);
+}
+
+.atlas-toolbar__label {
+  padding: 0 6px;
+  font-size: var(--fca-text-2xs);
+  color: var(--fca-text-faint);
+  letter-spacing: var(--fca-tracking-wide);
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.atlas-select {
+  height: 24px;
+  padding: 0 22px 0 8px;
+  border: 1px solid transparent;
+  border-radius: var(--fca-radius-sm);
+  background-color: transparent;
+  color: var(--fca-text-dim);
+  font-size: var(--fca-text-xs);
+  outline: none;
+  appearance: none;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 24 24' fill='none' stroke='%236b7f96' stroke-width='2'><path d='m6 9 6 6 6-6'/></svg>");
+  background-repeat: no-repeat;
+  background-position: right 6px center;
+  cursor: pointer;
+}
+
+.atlas-select:hover {
+  border-color: var(--fca-border);
+  color: var(--fca-text);
+}
+
+.atlas-select option {
+  background: var(--fca-bg-2);
+}
+
+/* 分段模式切换（总览 / 聚类） */
+.atlas-mode-switch {
+  display: flex;
+  align-items: center;
+  gap: 1px;
+  padding: 3px;
+  border: 1px solid rgba(44, 61, 84, 0.75);
+  border-radius: var(--fca-radius-lg);
+  background: rgba(10, 16, 25, 0.72);
+  backdrop-filter: blur(10px);
+}
+
+.atlas-mode-switch__item {
+  height: 24px;
+  padding: 0 10px;
+  border-radius: var(--fca-radius-sm);
+  font-size: var(--fca-text-xs);
+  color: var(--fca-text-muted);
+  white-space: nowrap;
+  transition: background var(--fca-dur-fast) var(--fca-ease), color var(--fca-dur-fast) var(--fca-ease);
+}
+
+.atlas-mode-switch__item:hover {
+  color: var(--fca-text-dim);
+  background: rgba(34, 49, 72, 0.4);
+}
+
+.atlas-mode-switch__item.is-active {
+  color: var(--fca-text);
+  background: var(--fca-bg-4);
+  box-shadow: inset 0 0 0 1px rgba(127, 184, 217, 0.16);
+}
+
+/* 视图状态胶囊 */
+.atlas-state-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  padding: 0 10px;
+  border: 1px solid rgba(44, 61, 84, 0.7);
+  border-radius: 999px;
+  background: rgba(10, 16, 25, 0.66);
+  backdrop-filter: blur(8px);
+  font-size: var(--fca-text-2xs);
+  color: var(--fca-text-dim);
+}
+
+.atlas-state-pill .status-dot {
+  width: 6px;
+  height: 6px;
+}
+
+/* ------------------------------------------------------------ 图例面板 */
+.atlas-legend {
+  width: 272px;
+  max-height: min(52vh, 460px);
+  display: flex;
+  flex-direction: column;
+  border: 1px solid rgba(44, 61, 84, 0.75);
+  border-radius: var(--fca-radius-lg);
+  background: rgba(10, 16, 25, 0.76);
+  backdrop-filter: blur(12px);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.42);
+  overflow: hidden;
+}
+
+.atlas-legend__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--fca-space-2);
+  padding: 8px 10px;
+  border-bottom: 1px solid rgba(30, 43, 61, 0.8);
+}
+
+.atlas-legend__title {
+  font-size: var(--fca-text-2xs);
+  font-weight: 600;
+  letter-spacing: var(--fca-tracking-wide2);
+  text-transform: uppercase;
+  color: var(--fca-text-muted);
+}
+
+.atlas-legend__body {
+  padding: 8px 10px 10px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: #253449 transparent;
+}
+
+.atlas-legend__section {
+  margin-bottom: 10px;
+}
+
+.atlas-legend__section:last-child {
+  margin-bottom: 0;
+}
+
+.atlas-legend__section-title {
+  margin-bottom: 5px;
+  font-size: var(--fca-text-2xs);
+  color: var(--fca-text-faint);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.atlas-legend__cluster {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 4px 5px;
+  border-radius: var(--fca-radius-sm);
+  text-align: left;
+  font-size: var(--fca-text-xs);
+  color: var(--fca-text-dim);
+  transition: background var(--fca-dur-fast) var(--fca-ease), color var(--fca-dur-fast) var(--fca-ease);
+}
+
+.atlas-legend__cluster:hover {
+  background: rgba(34, 49, 72, 0.42);
+  color: var(--fca-text);
+}
+
+.atlas-legend__cluster.is-active {
+  background: rgba(127, 184, 217, 0.12);
+  color: var(--fca-text);
+}
+
+.atlas-legend__swatch {
+  flex: 0 0 auto;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  box-shadow: 0 0 8px currentColor;
+}
+
+.atlas-legend__cluster-label {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.atlas-legend__cluster-count {
+  flex: 0 0 auto;
+  font-size: var(--fca-text-2xs);
+  color: var(--fca-text-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+.atlas-legend__row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 2px;
+  font-size: var(--fca-text-xs);
+  color: var(--fca-text-muted);
+  line-height: 1.5;
+}
+
+.atlas-legend__row .icon {
+  color: var(--fca-text-faint);
+}
+
+.atlas-legend__row--interactive {
+  cursor: pointer;
+  border-radius: var(--fca-radius-sm);
+  padding-left: 5px;
+  padding-right: 5px;
+}
+
+.atlas-legend__row--interactive:hover {
+  background: rgba(34, 49, 72, 0.36);
+  color: var(--fca-text-dim);
+}
+
+.atlas-legend__row.is-off {
+  opacity: 0.44;
+}
+
+.atlas-legend__mapping-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 100%;
+  height: 26px;
+  margin-top: 8px;
+  border: 1px solid var(--fca-border);
+  border-radius: var(--fca-radius-sm);
+  font-size: var(--fca-text-xs);
+  color: var(--fca-accent);
+  background: rgba(127, 184, 217, 0.05);
+  transition: background var(--fca-dur-fast) var(--fca-ease);
+}
+
+.atlas-legend__mapping-btn:hover {
+  background: rgba(127, 184, 217, 0.12);
+}
+
+/* ------------------------------------------------------------ 性能 HUD */
+.atlas-hud {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 10px;
+  border: 1px solid rgba(44, 61, 84, 0.6);
+  border-radius: var(--fca-radius);
+  background: rgba(10, 16, 25, 0.6);
+  backdrop-filter: blur(8px);
+  font-family: var(--fca-font-mono);
+  font-size: var(--fca-text-2xs);
+  color: var(--fca-text-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+.atlas-hud__item {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+}
+
+.atlas-hud__value {
+  color: var(--fca-text-muted);
+}
+
+.atlas-hud__value--good {
+  color: var(--fca-green);
+}
+
+.atlas-hud__value--warn {
+  color: var(--fca-gold);
+}
+
+/* ------------------------------------------------------------ 空/加载/错误态 */
+.atlas-status {
+  position: absolute;
+  inset: 0;
+  z-index: 8;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+
+.atlas-status__card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--fca-space-3);
+  max-width: 520px;
+  padding: var(--fca-space-6) var(--fca-space-6) var(--fca-space-5);
+  border: 1px solid rgba(44, 61, 84, 0.7);
+  border-radius: var(--fca-radius-xl);
+  background: rgba(10, 16, 25, 0.72);
+  backdrop-filter: blur(14px);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+  text-align: center;
+  pointer-events: auto;
+  animation: fca-rise-in var(--fca-dur-slow) var(--fca-ease-out);
+}
+
+.atlas-status__orb {
+  width: 68px;
+  height: 68px;
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at 40% 38%, rgba(127, 184, 217, 0.26), transparent 52%),
+    radial-gradient(circle at 65% 62%, rgba(160, 140, 240, 0.18), transparent 55%),
+    radial-gradient(circle at 50% 50%, rgba(216, 185, 120, 0.08), transparent 70%);
+  border: 1px solid rgba(127, 184, 217, 0.16);
+  box-shadow: inset 0 0 30px rgba(127, 184, 217, 0.07);
+}
+
+.atlas-status__orb--error {
+  border-color: rgba(224, 112, 112, 0.28);
+  background: radial-gradient(circle at 45% 42%, rgba(224, 112, 112, 0.24), transparent 60%);
+}
+
+.atlas-status__title {
+  font-size: var(--fca-text-lg);
+  font-weight: 500;
+  color: var(--fca-text-dim);
+}
+
+.atlas-status__desc {
+  font-size: var(--fca-text-sm);
+  line-height: 1.75;
+  color: var(--fca-text-faint);
+  user-select: text;
+}
+
+.atlas-status__desc code {
+  font-family: var(--fca-font-mono);
+  font-size: var(--fca-text-xs);
+  color: var(--fca-accent);
+  background: rgba(127, 184, 217, 0.08);
+  padding: 1px 5px;
+  border-radius: 3px;
+}
+
+.atlas-status__actions {
+  display: flex;
+  gap: var(--fca-space-2);
+  margin-top: var(--fca-space-1);
+}
+
+.atlas-status__hint {
+  font-size: var(--fca-text-2xs);
+  color: var(--fca-text-faint);
+  font-family: var(--fca-font-mono);
+  word-break: break-all;
+  user-select: text;
+}
+
+/* dev fixture 标注（仅开发期出现） */
+.atlas-dev-banner {
+  position: absolute;
+  top: var(--fca-space-3);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 9;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 12px;
+  border: 1px solid rgba(216, 185, 120, 0.4);
+  border-radius: 999px;
+  background: rgba(30, 24, 14, 0.85);
+  color: var(--fca-gold);
+  font-size: var(--fca-text-2xs);
+  letter-spacing: 0.04em;
+  pointer-events: auto;
+}
+
+/* 聚类模式下的星团焦点条 */
+.atlas-cluster-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--fca-space-2);
+  max-width: min(70vw, 900px);
+  padding: 5px 8px;
+  border: 1px solid rgba(44, 61, 84, 0.7);
+  border-radius: var(--fca-radius-lg);
+  background: rgba(10, 16, 25, 0.74);
+  backdrop-filter: blur(10px);
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.atlas-cluster-bar::-webkit-scrollbar {
+  display: none;
+}
+
+.atlas-cluster-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 24px;
+  padding: 0 10px;
+  border: 1px solid var(--fca-border);
+  border-radius: 999px;
+  font-size: var(--fca-text-xs);
+  color: var(--fca-text-muted);
+  white-space: nowrap;
+  transition: border-color var(--fca-dur-fast) var(--fca-ease), color var(--fca-dur-fast) var(--fca-ease),
+    background var(--fca-dur-fast) var(--fca-ease);
+}
+
+.atlas-cluster-chip:hover {
+  color: var(--fca-text);
+  border-color: var(--fca-border-strong);
+}
+
+.atlas-cluster-chip.is-active {
+  color: var(--fca-text);
+  background: var(--fca-accent-soft);
+  border-color: var(--fca-accent-line);
+}
+
+.atlas-cluster-chip__dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  box-shadow: 0 0 7px currentColor;
+}
+
+/* 映射说明弹窗内容 */
+.mapping-intro {
+  margin-bottom: var(--fca-space-4);
+  font-size: var(--fca-text-sm);
+  line-height: 1.75;
+  color: var(--fca-text-dim);
+}
+
+.mapping-grid {
+  display: grid;
+  gap: var(--fca-space-2);
+}
+
+.mapping-item {
+  display: grid;
+  grid-template-columns: 148px 1fr;
+  gap: var(--fca-space-3);
+  padding: var(--fca-space-3);
+  border: 1px solid var(--fca-border-soft);
+  border-radius: var(--fca-radius);
+  background: rgba(7, 11, 18, 0.35);
+}
+
+.mapping-item__key {
+  font-size: var(--fca-text-xs);
+  font-weight: 600;
+  color: var(--fca-accent);
+  letter-spacing: 0.03em;
+}
+
+.mapping-item__desc {
+  font-size: var(--fca-text-xs);
+  line-height: 1.7;
+  color: var(--fca-text-muted);
+}
+
+.mapping-item__desc strong {
+  color: var(--fca-text-dim);
+  font-weight: 500;
+}
+
+.mapping-cluster-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: var(--fca-space-2);
+}
+
+.mapping-note {
+  margin-top: var(--fca-space-3);
+  padding: var(--fca-space-3);
+  border: 1px solid rgba(127, 184, 217, 0.18);
+  border-radius: var(--fca-radius);
+  background: rgba(127, 184, 217, 0.05);
+  font-size: var(--fca-text-xs);
+  line-height: 1.7;
+  color: var(--fca-text-muted);
+}
+
+/* 画布底部提示（快捷键） */
+.atlas-shortcuts {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 8px;
+  border-radius: var(--fca-radius);
+  background: rgba(10, 16, 25, 0.55);
+  font-size: var(--fca-text-2xs);
+  color: var(--fca-text-faint);
+  pointer-events: none;
+}
+
+.atlas-shortcuts kbd {
+  font-family: var(--fca-font-ui);
+  font-size: var(--fca-text-2xs);
+  color: var(--fca-text-muted);
+  border: 1px solid rgba(44, 61, 84, 0.7);
+  border-radius: 3px;
+  padding: 0 4px;
+  margin-right: 3px;
+}
+
+@media (max-width: 1360px) {
+  .atlas-legend {
+    width: 240px;
+  }
+  .atlas-shortcuts {
+    display: none;
+  }
+}

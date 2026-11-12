@@ -1,0 +1,236 @@
+/* ============================================================================
+ * FCA Memory Atlas — 基础重置与通用元素
+ * ========================================================================== */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+/*
+ * 关键：作者样式里的 display:flex/grid/block 会覆盖 UA 的 [hidden]{display:none}，
+ * 导致 JS 里 el.hidden = true 的元素（DEV 横幅/状态卡/聚类条/搜索结果…）仍然可见。
+ * 统一用高优先级规则保证 hidden 语义，避免“幽灵元素”出现在截图里。
+ */
+[hidden] {
+  display: none !important;
+}
+
+html,
+body {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+html {
+  background: var(--fca-bg-0);
+  color-scheme: dark;
+}
+
+body {
+  font-family: var(--fca-font-ui);
+  font-size: var(--fca-text-md);
+  line-height: var(--fca-leading);
+  color: var(--fca-text);
+  background: var(--fca-bg-0);
+  overflow: hidden;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  user-select: none;
+}
+
+input,
+textarea,
+select,
+button {
+  font: inherit;
+  color: inherit;
+}
+
+button {
+  cursor: pointer;
+  border: 0;
+  background: none;
+}
+
+button:disabled {
+  cursor: default;
+}
+
+a {
+  color: var(--fca-accent);
+  text-decoration: none;
+}
+
+a:hover {
+  color: var(--fca-accent-strong);
+}
+
+h1, h2, h3, h4, h5, h6, p {
+  margin: 0;
+}
+
+ul, ol {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+::selection {
+  background: rgba(127, 184, 217, 0.28);
+  color: #fff;
+}
+
+:focus-visible {
+  outline: 1px solid var(--fca-accent-line);
+  outline-offset: 1px;
+}
+
+/* ---------------------------------------------------------------- 滚动条 */
+.fca-scroll {
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-width: thin;
+  scrollbar-color: #253449 transparent;
+}
+
+.fca-scroll::-webkit-scrollbar {
+  width: 9px;
+  height: 9px;
+}
+
+.fca-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.fca-scroll::-webkit-scrollbar-thumb {
+  background: #223146;
+  border-radius: 8px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+.fca-scroll::-webkit-scrollbar-thumb:hover {
+  background: #2e4059;
+  background-clip: padding-box;
+  border: 2px solid transparent;
+}
+
+.fca-scroll::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/* ---------------------------------------------------------------- 工具类 */
+.fca-muted {
+  color: var(--fca-text-muted);
+}
+
+.fca-dim {
+  color: var(--fca-text-dim);
+}
+
+.fca-mono {
+  font-family: var(--fca-font-mono);
+  font-size: var(--fca-text-xs);
+}
+
+.fca-hidden {
+  display: none !important;
+}
+
+.fca-truncate {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fca-clamp-2 {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.fca-divider {
+  height: 1px;
+  margin: var(--fca-space-2) 0;
+  background: var(--fca-border);
+}
+
+.fca-row {
+  display: flex;
+  align-items: center;
+  gap: var(--fca-space-2);
+}
+
+.fca-grow {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.fca-uppercase {
+  text-transform: uppercase;
+  letter-spacing: var(--fca-tracking-wide);
+}
+
+/* 屏幕阅读器专用 */
+.fca-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* 载入动画 */
+@keyframes fca-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes fca-pulse {
+  0%, 100% {
+    opacity: 0.45;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+@keyframes fca-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes fca-rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes fca-toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
