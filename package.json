@@ -1,29 +1,29 @@
 {
-  "name": "fca-memory-atlas",
-  "version": "0.1.0",
-  "private": true,
-  "description": "FCA Memory Atlas — local cognitive memory infrastructure: Windows desktop app + FCA Local Runtime + official DSH plugin",
-  "type": "module",
-  "scripts": {
-    "init": "node runtime/bin/fca-runtime.js init",
-    "runtime": "node runtime/bin/fca-runtime.js serve",
-    "runtime:status": "node runtime/bin/fca-runtime.js status",
-    "runtime:stop": "node runtime/bin/fca-runtime.js stop",
-    "seed:demo": "node runtime/bin/fca-runtime.js seed --demo",
-    "desktop": "node scripts/start-desktop.js",
-    "capture": "node scripts/capture.js",
-    "record": "node scripts/record.js",
-    "test": "node scripts/run-tests.js",
-    "test:all": "node scripts/run-tests.js --all",
-    "test:runtime": "node --test \"runtime/test/*.test.js\"",
-    "test:unit": "node scripts/run-tests.js --unit",
-    "test:integration": "node scripts/run-tests.js --integration",
-    "test:e2e": "node scripts/run-tests.js --e2e",
-    "bench": "node scripts/bench.js",
-    "package": "node installer/build.js",
-    "verify": "node scripts/verify.js"
-  },
-  "engines": {
-    "node": ">=24.0.0"
-  }
+    "name":  "fca-memory-atlas",
+    "version":  "0.1.1",
+    "private":  true,
+    "description":  "FCA Memory Atlas — local cognitive memory infrastructure: Windows desktop app + FCA Local Runtime + official DSH plugin",
+    "type":  "module",
+    "scripts":  {
+                    "init":  "node runtime/bin/fca-runtime.js init",
+                    "runtime":  "node runtime/bin/fca-runtime.js serve",
+                    "runtime:status":  "node runtime/bin/fca-runtime.js status",
+                    "runtime:stop":  "node runtime/bin/fca-runtime.js stop",
+                    "seed:demo":  "node runtime/bin/fca-runtime.js seed --demo",
+                    "desktop":  "node scripts/start-desktop.js",
+                    "capture":  "node scripts/capture.js",
+                    "record":  "node scripts/record.js",
+                    "test":  "node scripts/run-tests.js",
+                    "test:all":  "node scripts/run-tests.js --all",
+                    "test:runtime":  "node --test \"runtime/test/*.test.js\"",
+                    "test:unit":  "node scripts/run-tests.js --unit",
+                    "test:integration":  "node scripts/run-tests.js --integration",
+                    "test:e2e":  "node scripts/run-tests.js --e2e",
+                    "bench":  "node scripts/bench.js",
+                    "package":  "node installer/build.js",
+                    "verify":  "node scripts/verify.js"
+                },
+    "engines":  {
+                    "node":  "\u003e=24.0.0"
+                }
 }

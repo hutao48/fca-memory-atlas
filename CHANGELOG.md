@@ -1,6 +1,15 @@
-﻿# 变更日志（FCA Memory Atlas）
+# 变更日志（FCA Memory Atlas）
 
 本项目遵循语义化版本：`MAJOR.MINOR.PATCH`。Alpha 阶段允许小版本内调整内部实现，但 `docs/PUBLIC_INTERFACE_FREEZE.md` 的公共契约只能由 Lead 审核后变更并记录于下。
+
+## [0.1.1] — 2026-11-12（Alpha 0.1.1 热修）
+
+### 修复
+
+- **桌面 · 记忆编辑器**：加载已有记忆时调用未定义的 `renderTitleBar()`，触发错误边界显示"无法加载记忆 / renderTitleBar is not defined"。已移除该遗留调用（`desktop/renderer/views/editor.js`），并通过真实已安装应用 + CDP 验证：编辑器正常显示记忆标题与内容、无 console 错误。
+- **桌面 · 记忆列表**：`loadData()` 成功后只调用 `applyFilters()` 而未重新 `render()`，body 永久停留在"正在读取记忆列表…"（数据已加载、底部计数正常但表格不出现）。已改为计算筛选结果后整体重渲染（`desktop/renderer/views/list.js`）；同时修复行内标签以数组形式传给 DOM 导致单元格显示 `[object HTMLSpanElement]` 的问题（展开标签子元素）。
+- 验证：真实已安装应用（Electron + 真实 Runtime，5 条记忆）通过 CDP 检查——列表渲染 5 行、无错误、无 spinner；编辑器打开已有记忆正常。安装包重构建并发布 v0.1.1（见 Releases/latest）。
+- 说明：本热修不改变数据模型 / API / 渲染契约；v0.1.0 Release 保留作为历史版本，请使用 v0.1.1 或更新版本。
 
 ## [0.1.0] — 2026-11-12（Alpha 0.1）
 

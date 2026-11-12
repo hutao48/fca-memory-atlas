@@ -1,4 +1,4 @@
-﻿# FCA Memory Atlas
+# FCA Memory Atlas
 
 **本地优先的认知记忆基础设施**：一个 Windows 桌面软件（星云式记忆可视化）+ 一个本地认知 Runtime + 一个 DeepSeek Harness(DSH) 正式插件。记忆、关系、布局、身份和认知状态全部保存在你的本机，LLM 只是可替换的 API 能力，不依赖任何云端记忆库。
 
@@ -35,7 +35,7 @@
 
 ### A. 安装包（推荐，普通用户）
 
-1. 从 [Releases](https://github.com/hutao48/fca-memory-atlas/releases) 下载 `FCA-Memory-Atlas-Setup-*.exe`（或在源码中运行 `node installer/build.js` 自行构建）；也可直接双击仓库内构建产物（若有）。
+1. 从 [Releases](https://github.com/hutao48/fca-memory-atlas/releases/latest) 下载 `FCA-Memory-Atlas-Setup-*.exe`（或在源码中运行 `node installer/build.js` 自行构建）；也可直接双击仓库内构建产物（若有）。
 2. **从 Windows 文件资源管理器双击**安装（per-user，无需管理员）。不要从自动化沙箱/终端以受限权限启动，否则写注册表/快捷方式会被拒绝。
 3. 首次启动 → 首次启动向导：选择数据目录（默认 `%LOCALAPPDATA%\FCA-Memory-Atlas`）与端口（默认 `17860`）→ 初始化空库。
 4. 开始创建记忆即可；数据目录可随时在设置中更换。

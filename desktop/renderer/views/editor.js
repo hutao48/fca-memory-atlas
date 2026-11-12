@@ -971,7 +971,6 @@ export function createView(ctx) {
       render();
       loadVersions(id);
       loadRelations(id);
-      renderTitleBar();
       setStatus();
     } catch (err) {
       const info = errInfo(err);

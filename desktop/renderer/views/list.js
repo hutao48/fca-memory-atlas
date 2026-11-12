@@ -377,7 +377,10 @@ export function createView(ctx) {
       const rows = await loadAllRows();
       state.allRows = rows;
       state.loading = false;
+      // 先计算筛选结果，再整体重渲染：render() 在 loading 分支只画 spinner，
+      // 若加载完成后不重新 render()，body 会永远停留在“正在读取记忆列表…”。
       applyFilters();
+      render();
     } catch (err) {
       state.loading = false;
       state.loadError = errInfo(err);
@@ -910,7 +913,7 @@ export function createView(ctx) {
       el('span', { class: 'view-list__row-badges' }, [
         row.agent_generated ? el('span', { class: 'view-list__tag view-list__tag--violet', text: 'Agent' }) : null,
         row.deleted_at ? el('span', { class: 'view-list__tag view-list__tag--rose', text: '已删除' }) : null,
-        (row.tag_names && row.tag_names.length ? row.tag_names : row.tags || []).slice(0, 3).map((tag) => el('span', { class: 'view-list__tag', text: `#${String(tag).slice(0, 14)}` })),
+        ...((row.tag_names && row.tag_names.length ? row.tag_names : row.tags || []).slice(0, 3).map((tag) => el('span', { class: 'view-list__tag', text: `#${String(tag).slice(0, 14)}` }))),
         (row.tags && row.tags.length > 3) ? el('span', { class: 'view-list__tag', text: `+${row.tags.length - 3}` }) : null,
       ]),
     ]);
