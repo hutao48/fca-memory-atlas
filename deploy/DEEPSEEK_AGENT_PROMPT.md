@@ -43,7 +43,7 @@ nvidia-smi --query-gpu=name,memory.total,driver_version --format=csv
 ### 方案 A：安装包（推荐）
 
 1. 获取安装包（任选其一）：
-   - 从 GitHub Releases 下载 `FCA-Memory-Atlas-Setup-*.exe`；
+   - 从 GitHub Releases 直接下载 `FCA-Memory-Atlas-Setup-0.1.0-x64.exe`（v0.1.0 Release 已附带，约 99 MB，含 sha256 校验文件）；
    - 或克隆仓库后本地构建：`node installer/build.js`（构建产物 `artifacts/installer/FCA-Memory-Atlas-Setup-0.1.0-x64.exe`，需要 Electron 缓存，见 `scripts/fetch-electron.js`）。
 2. 在 **Windows 文件资源管理器**中双击安装包（per-user，无需管理员）；静默安装：
    ```powershell
