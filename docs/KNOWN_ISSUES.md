@@ -1,13 +1,60 @@
-﻿# FCA Memory Atlas 已知问题与限制（Alpha 0.1）
+# FCA Memory Atlas 已知问题与限制（v0.2.0）
 
-- 版本：Alpha 0.1.0
+- 版本：v0.2.0（桌面/Runtime/安装包 0.2.0；DSH 插件 0.2.1；Runtime API v1）
 - 更新：2026-11-12
-- 适用范围：安装版桌面软件（`FCA-Memory-Atlas-Setup-0.1.0-x64.exe`）+ 随包 FCA Local Runtime
-- 来源：交付实测（`docs/INSTALL_TEST.md`、`artifacts/reports/install-*.json`）+ QA 自动化测试（`docs/TEST_REPORT.md`、`artifacts/reports/security.json` 等）。
+- 适用范围：安装版桌面软件（`FCA-Memory-Atlas-Setup-0.2.0-x64.exe`，含 Unity 星云组件）+ 随包 FCA Local Runtime + DSH 插件
+- 来源：交付实测（`docs/INSTALL_TEST.md`、`artifacts/reports/install-*.json`、`artifacts/unity/*`、`artifacts/plugin/*`）+ QA 自动化测试（`docs/TEST_REPORT.md`、`artifacts/reports/security.json` 等）。
 
-级别说明：**高**=影响可用性/数据安全；**中**=影响部分功能或体验；**低**=边界问题；**信息**=设计限制/契约未覆盖，Alpha 0.1 接受。
+级别说明：**高**=影响可用性/数据安全；**中**=影响部分功能或体验；**低**=边界问题；**信息**=设计限制/契约未覆盖，当前版本接受。
 
-> Alpha 0.1 为内部评估版本。下列问题除特别标注“已修复”外均**未修复**；使用前请阅读“规避方式”。
+> v0.2.0 为内部评估版本。下列问题除特别标注“已修复”外均**未修复**；使用前请阅读“规避方式”。
+
+---
+
+## v0.2.0 新增组件：Unity 星云 / 桌面集成 / 插件 0.2.1
+
+### KI-UNITY-01 [低] 内嵌 Unity WebGL 依赖 WebGL2/GPU 能力与首次加载时间
+
+- **现象**：Unity WebGL 播放器需要 WebGL2 与可用 GPU 驱动；无 GPU、远程会话（部分 RDP 模式）或驱动异常时可能黑屏/加载失败。首次进入星云需加载 wasm/data（本地静态服务，通常数秒）。
+- **影响**：内嵌 Unity 星云不可用或首次加载慢。
+- **规避/行为**：桌面端在 Unity WebGL 资源缺失、加载失败或被切换时**自动回退内置 WebGL 星云**（功能不缺失）；可在“设置 → 星云引擎”手动切到 WebGL。详见 `docs/UNITY_NEBULA.md` §6/§8。
+
+### KI-UNITY-02 [低] 体积着色器最多同时渲染 8 条旋臂
+
+- **现象**：`_ArmColors[8]` 上限；workspace 超过 8 个时，节点仍严格按各自旋臂分布，但星云体积只渲染前 8 条臂（HUD 黄色提示）。
+- **规避**：如长期 >8 个 workspace，可提高上限（GPU 成本上升）或合并最小 workspace；当前 2 条臂（FCA/default）场景无影响。
+
+### KI-UNITY-03 [信息] Unity 渲染器无 SSE，使用 3s 轮询
+
+- 现象：星云数据 3 秒轮询 `GET /api/v1/graph`；实时性低于桌面 WebGL 的 SSE。
+- 影响：百级节点规模无压力；秒级实时需求需后续加 SSE 订阅。
+
+### KI-UNITY-04 [信息] HUD 使用 IMGUI + 系统字体
+
+- 中文依赖系统字体（Microsoft YaHei 等）；无中文字体的机器显示方块（功能不受影响）。刻意避免 TextMeshPro/uGUI 依赖。
+
+### KI-UNITY-05 [信息] Unity WebGL 资源未签名，安装包体积增加
+
+- 安装包与 Unity WebGL 资源均未做代码签名（SmartScreen 可能提示未知发布者）；Unity WebGL 构建（wasm/data 压缩后）使安装包增量约 10–20 MiB（具体见构建报告 `payload.unity_bytes`）。
+
+### KI-DESK-01 [信息] Unity 星云内嵌在 Electron 窗口（设计行为）
+
+- 星云由 Unity WebGL 播放器经本地静态服务 + iframe 内嵌在 Electron 星云视图中；不再有独立 Unity 窗口。引擎切换/回退状态显示在星云工具栏与状态卡；本地静态服务仅监听回环且只提供安装目录内的 Unity WebGL 静态资源。
+
+### KI-DESK-02 [信息] DSH 工具 shell 内嵌套启动 Electron/Unity 需清理环境变量
+
+- 现象：本机 DSH 会话 shell 继承 `ELECTRON_RUN_AS_NODE=1`/`CHROME_CRASHPAD_PIPE_NAME`，嵌套启动 Electron 可能 `0x80000003` 崩溃。
+- 处理：测试环境需清理这两个环境变量并加 `--no-sandbox`；**用户从 Explorer/快捷方式启动不需要**。见 `docs/ENVIRONMENT_REPORT.md` §7.2、`docs/UNITY_NEBULA.md` §6.7。
+
+### KI-PLUGIN-01 [信息] 插件 v0.2.1 过滤子会话 user-role 消息；历史噪声已软删除
+
+- v0.2.1 起不再把 subagent/team 子会话的 user-role 提示词采集为真实用户记忆（`src/session-scope.js`）；此前产生的 3 条 teammate 启动提示词记忆已**软删除**（回收站可见，`include_deleted` 可查，`v0.2.1-cleanup-evidence.json`）。
+- 兼容性：`engines.fcaRuntime=">=0.1.0 <0.2.0"`，与 Runtime 0.1.0 兼容。
+
+### KI-INSTALL-01 [信息] 安装实测环境限制（DSH 工具 shell Low IL）
+
+- DSH 工具 shell 子进程为 Low IL：直接在其中运行安装包时 `%TEMP%` 被重定向、HKCU/快捷方式写入被静默拒绝（假失败），Electron/Unity GUI 冒烟也受限。
+- 处理：安装/卸载实测使用正常令牌会话/真实双击；证据与限制见 `docs/INSTALL_TEST.md` §5/§6 与 `docs/ENVIRONMENT_REPORT.md` §7.4。真实用户（Explorer Medium IL）不受影响。
 
 ---
 
@@ -177,7 +224,7 @@
 
 ### KI-ENV-03 [信息] 旧 DSH 运行时 Node 路径已失效
 
-- 环境报告早期引用的 `C:\\Users\\<user>\.dsh\dsh-runtimes\...\node.exe` 在 DSH NEXT 升级后不存在；当前实际 Node 路径见 `docs/ENVIRONMENT_REPORT.md` §2。`installer/build.js` 已改用 `vendor\node\node.exe` 优先、DSH NEXT 新路径兜底。
+- 环境报告早期引用的 `<DSH_HOME>\dsh-runtimes\...\node.exe` 在 DSH NEXT 升级后不存在；当前实际 Node 路径见 `docs/ENVIRONMENT_REPORT.md` §2。`installer/build.js` 已改用 `vendor\node\node.exe` 优先、DSH NEXT 新路径兜底。
 
 ### KI-ENV-04 [信息] DSH 工具 shell 的子进程以 Low IL 运行，安装器测试会假失败（测试环境限制）
 

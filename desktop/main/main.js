@@ -9,6 +9,8 @@
  * 命令行参数（capture/e2e 用）：
  *   --fca-home=<dir>   覆盖数据目录（仅本次运行，不写盘）
  *   --port=<port>      覆盖 Runtime 端口（仅本次运行，不写盘）
+ *   --screenshot=<path>  就绪后截图并退出（E2E/验收用；相对项目根或绝对路径）
+ *   --screenshot-wait=<ms> 截图前等待（默认 12000，等待星云/Unity 内嵌加载）
  *
  * 安装版布局假设（Lead 契约）：
  *   <InstallDir>\FCA Memory Atlas.exe
@@ -25,6 +27,7 @@ const paths = require('./paths');
 const { createLogger } = require('./logger');
 const { createSettingsStore } = require('./settings');
 const { createRuntimeManager } = require('./runtime-manager');
+const { createUnityEmbed } = require('./unity-embed');
 const { registerIpc } = require('./ipc');
 const { createMenu } = require('./menu');
 const windowState = require('./window-state');
@@ -102,6 +105,8 @@ function bootstrap() {
   let windowTracker = null;
   let ipc = null;
   let runtimeManager = null;
+  let unityEmbed = null;
+  let unityViewer = null; // 旧版 standalone（仅 FCA_UNITY_STANDALONE=1 开发开关）
   let quitting = false;
   let shutdownDone = false;
 
@@ -132,6 +137,30 @@ function bootstrap() {
         }
       }
     }
+  }
+
+  // E2E/验收：--screenshot=<path> 在窗口就绪并等待星云（含 Unity WebGL 内嵌）加载后截图并退出
+  let screenshotDone = false;
+  function maybeCaptureAndExit(win) {
+    const target = CLI.screenshot;
+    if (!target || screenshotDone) return;
+    screenshotDone = true;
+    const waitMs = Math.max(0, Number(CLI['screenshot-wait']) || 12000);
+    const outPath = path.isAbsolute(String(target)) ? String(target) : path.resolve(paths.PROJECT_ROOT, String(target));
+    const timer = setTimeout(async () => {
+      try {
+        fs.mkdirSync(path.dirname(outPath), { recursive: true });
+        const image = await win.webContents.capturePage();
+        const png = image.toPNG();
+        fs.writeFileSync(outPath, png);
+        logger.info('capture', '窗口截图已保存（E2E）', { path: outPath, bytes: png.length, size: image.getSize() });
+      } catch (error) {
+        logger.error('capture', '窗口截图失败（E2E）', { message: error.message, path: outPath });
+      } finally {
+        app.quit();
+      }
+    }, waitMs);
+    if (timer.unref) timer.unref();
   }
 
   function createMainWindow() {
@@ -198,6 +227,7 @@ function bootstrap() {
     win.once('ready-to-show', () => {
       win.show();
       logger.info('window', '窗口已显示', { bounds: win.getBounds(), maximized: win.isMaximized() });
+      maybeCaptureAndExit(win);
     });
 
     const notifyMaximized = () => {
@@ -252,6 +282,10 @@ function bootstrap() {
       }
       mainWindow = null;
       logger.info('window', '窗口已关闭');
+      // 主窗口关闭：内嵌 Unity WebGL 静态服务一并关闭（不残留端口/进程）
+      if (unityEmbed) {
+        unityEmbed.stop({ reason: 'main-window-closed' }).catch((error) => logger.warn('unity-embed', '关闭 Unity WebGL 服务失败', { message: error.message }));
+      }
     });
 
     return win;
@@ -323,6 +357,8 @@ function bootstrap() {
       logger.info('app', '开始退出流程');
       Promise.resolve()
         .then(() => (windowTracker ? windowTracker.saveNow() : undefined))
+        .then(() => (unityEmbed ? unityEmbed.dispose() : undefined))
+        .then(() => (unityViewer ? unityViewer.dispose() : undefined))
         .then(() => (runtimeManager ? runtimeManager.shutdownForQuit() : undefined))
         .then(() => (ipc ? ipc.dispose() : undefined))
         .then(() => logger.flush())
@@ -369,9 +405,27 @@ function bootstrap() {
       getWindow,
     });
 
+    // Unity 星云（默认内嵌 WebGL）：本地静态服务 + atlas 视图 iframe；产物缺失/启动失败时 renderer 回退 WebGL
+    unityEmbed = createUnityEmbed({
+      logger,
+      settings: settingsStore,
+    });
+    // 旧版独立窗口 Unity standalone：仅开发开关启用（Lead 新要求默认内嵌，不再默认启动独立进程）
+    if (process.env.FCA_UNITY_STANDALONE === '1') {
+      try {
+        const { createUnityViewer } = require('./unity-viewer');
+        unityViewer = createUnityViewer({ logger, settings: settingsStore, getWindow });
+        logger.info('unity', '旧版 standalone Unity 渲染器已启用（FCA_UNITY_STANDALONE=1，仅开发调试）');
+      } catch (error) {
+        logger.warn('unity', '旧版 standalone Unity 渲染器加载失败（忽略）', { message: error.message });
+      }
+    }
+
     ipc = registerIpc({
       settingsStore,
       runtimeManager,
+      unityEmbed,
+      unityViewer,
       logger,
       getWindow,
     });
@@ -379,6 +433,7 @@ function bootstrap() {
     installMenu();
     mainWindow = createMainWindow();
 
+    const unityStatus = unityEmbed ? unityEmbed.getStatus() : unityViewer ? unityViewer.getStatus() : null;
     logger.info('app', '应用已启动', {
       version: paths.PRODUCT_VERSION,
       electron: process.versions.electron,
@@ -388,7 +443,24 @@ function bootstrap() {
       runtimeEntry: (paths.resolveRuntimeEntry(settingsStore.get()) || {}).entry || null,
       nodeBin: (paths.resolveNodeBin(settingsStore.get()) || {}).path || null,
       packaged: paths.isPackagedApp(),
+      nebulaEngine: settingsStore.get().nebulaEngine,
+      // 注意：不记录含 token 的 frameUrl
+      unity: unityStatus
+        ? {
+            mode: unityStatus.mode || 'standalone',
+            available: unityStatus.available,
+            dir: unityStatus.dir || null,
+            source: unityStatus.source || unityStatus.exeSource || null,
+            requestedEngine: unityStatus.requestedEngine,
+          }
+        : null,
     });
+
+    if (unityStatus && !unityStatus.available) {
+      logger.warn('unity', '未找到 Unity WebGL 构建：星云默认回退 WebGL（可设置 FCA_UNITY_WEBGL_DIR 或打包 unity/FCANebulaWebGL；开发路径 artifacts/unity/FCANebulaWebGL）', {
+        searched: unityStatus.searched,
+      });
+    }
 
     if (settingsStore.get().autoStartRuntime) {
       runtimeManager

@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Configuration surface of the FCA Memory Atlas bridge.
  *
  * The plugin exports `Config`, which Cordis validates before `apply()` runs
@@ -18,7 +18,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 /** Plugin package version (mirrors package.json). */
-export const PLUGIN_VERSION = '0.1.4'
+export const PLUGIN_VERSION = '0.2.1'
 
 /** FCA HTTP API major version this plugin speaks (contract §8). */
 export const FCA_API_VERSION = '1'
@@ -34,6 +34,9 @@ export const CAPTURE_POLICIES = ['off', 'user-messages', 'turn-summaries', 'full
 
 /** Automatic memory modes: off | user messages only | user + assistant messages. */
 export const AUTO_MEMORY_MODES = ['off', 'user-messages', 'all']
+
+/** Agent turn-node aggregation modes: off | summary (one aggregated memory per turn). */
+export const AUTO_MEMORY_AGENT_MODES = ['off', 'summary']
 
 /** Memory types accepted by the FCA contract (§2). */
 export const MEMORY_TYPES = [
@@ -142,6 +145,48 @@ export const CONFIG_FIELDS = {
     default: ['DSH自动记忆'],
     description: 'Auto-memory: tag names attached to every captured memory.',
   },
+  autoMemoryAgentNodes: {
+    type: 'enum',
+    values: AUTO_MEMORY_AGENT_MODES,
+    default: 'off',
+    description:
+      'Agent turn nodes (v0.2): off | summary — at every turn end store one aggregated procedural memory with the turn\'s reasoning, tool calls/results and conclusion. The shipped bundle enables summary.',
+  },
+  autoMemoryAgentMaxToolNodes: {
+    type: 'integer',
+    default: 8,
+    description: 'Agent turn node: maximum tool calls rendered into one aggregated memory body.',
+  },
+  autoMemoryAgentReasoningChars: {
+    type: 'integer',
+    default: 1500,
+    description: 'Agent turn node: reasoning excerpt length cap (characters).',
+  },
+  autoMemoryAgentConclusionChars: {
+    type: 'integer',
+    default: 800,
+    description: 'Agent turn node: conclusion excerpt length cap (characters).',
+  },
+  autoMemoryAgentToolArgChars: {
+    type: 'integer',
+    default: 400,
+    description: 'Agent turn node: per-tool argument summary cap (characters, after redaction).',
+  },
+  autoMemoryAgentToolResultChars: {
+    type: 'integer',
+    default: 600,
+    description: 'Agent turn node: per-tool result summary cap (characters, after redaction).',
+  },
+  autoMemoryAgentMaxChars: {
+    type: 'integer',
+    default: 12000,
+    description: 'Agent turn node: aggregated memory body length cap (must fit reasoning + up to 8 tool nodes + conclusion).',
+  },
+  autoMemoryAgentMaxPerHour: {
+    type: 'integer',
+    default: 60,
+    description: 'Agent turn node: hard rate limit (aggregated memories per rolling hour).',
+  },
   requestTimeoutMs: {
     type: 'integer',
     default: 5000,
@@ -242,6 +287,20 @@ export function normalizeConfig(raw) {
       .map((item) => item.trim())
       .slice(0, 16)
   }
+  const agentNodes = asString(input.autoMemoryAgentNodes, base.autoMemoryAgentNodes)
+  if (!AUTO_MEMORY_AGENT_MODES.includes(agentNodes)) {
+    throw new TypeError(
+      `autoMemoryAgentNodes must be one of ${AUTO_MEMORY_AGENT_MODES.join(' | ')}, received ${JSON.stringify(input.autoMemoryAgentNodes)}`,
+    )
+  }
+  config.autoMemoryAgentNodes = agentNodes
+  config.autoMemoryAgentMaxToolNodes = Math.min(asPositiveInt(input.autoMemoryAgentMaxToolNodes, base.autoMemoryAgentMaxToolNodes), 32)
+  config.autoMemoryAgentReasoningChars = Math.min(asPositiveInt(input.autoMemoryAgentReasoningChars, base.autoMemoryAgentReasoningChars), 20_000)
+  config.autoMemoryAgentConclusionChars = Math.min(asPositiveInt(input.autoMemoryAgentConclusionChars, base.autoMemoryAgentConclusionChars), 20_000)
+  config.autoMemoryAgentToolArgChars = Math.min(asPositiveInt(input.autoMemoryAgentToolArgChars, base.autoMemoryAgentToolArgChars), 4000)
+  config.autoMemoryAgentToolResultChars = Math.min(asPositiveInt(input.autoMemoryAgentToolResultChars, base.autoMemoryAgentToolResultChars), 8000)
+  config.autoMemoryAgentMaxChars = Math.min(asPositiveInt(input.autoMemoryAgentMaxChars, base.autoMemoryAgentMaxChars), 60_000)
+  config.autoMemoryAgentMaxPerHour = Math.min(asPositiveInt(input.autoMemoryAgentMaxPerHour, base.autoMemoryAgentMaxPerHour), 10_000)
   config.requestTimeoutMs = asPositiveInt(input.requestTimeoutMs, base.requestTimeoutMs)
   config.healthTimeoutMs = asPositiveInt(input.healthTimeoutMs, base.healthTimeoutMs)
   config.connectIntervalMs = asPositiveInt(input.connectIntervalMs, base.connectIntervalMs)

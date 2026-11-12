@@ -1,7 +1,7 @@
-﻿# FCA Alpha 0.1 — 阶段 0 环境调查报告
+# FCA Alpha 0.1 — 阶段 0 环境调查报告
 
 - 项目：FCA Memory Atlas / FCA DSH Plugin / FCA Local Runtime
-- 版本：Alpha 0.1
+- 版本：v0.2.0（Alpha 0.1 阶段报告的 v0.2.0 交付更新；见 §7）
 - 调查时间：2026-11-12（2026-11-12 打包/交付阶段修正 Node 路径、NSIS 构建环境与 Electron 沙箱差异，见 §7）
 - 调查主机：用户本机（Windows 11 x64）
 - 结论：**真实 DSH 插件 SDK 可用**（Cordis 插件体系，已在本机 profile 中安装并运行多个第三方 bundle）。桌面端采用 Electron + WebGL2；Runtime 采用 Node 24 + 内置 `node:sqlite`（零第三方依赖、可离线运行）；不依赖 Python/PyTorch 完成 Alpha 0.1 核心功能（GPU 信息通过 `nvidia-smi` 探测并展示，渲染 GPU 加速由 WebGL 提供）。
@@ -24,8 +24,8 @@ GPU 可用（CUDA 驱动层健康，`nvidia-smi` 正常枚举）。GPU 不存在
 | 工具 | 实测 | 说明 |
 |---|---|---|
 | Node.js（项目随包） | **v24.11.0**（`D:\FCA\FCA-Memory-Atlas\vendor\node\node.exe`） | **构建/运行的首选 Node**；`tools/node.cmd`、`tools/env.ps1` 已优先使用它；安装包把该 `node.exe` 随包分发（`<安装目录>\node\node.exe`） |
-| Node.js（DSH 随附兜底） | **v24.21.0**（`C:\\Users\\<user>\AppData\Local\Programs\DSH NEXT\resources\runtime\x64\primary-runtime\dependencies\node\bin\node.exe`） | 系统 PATH 中无 node；`vendor\node` 缺失时 `tools/node.cmd` 回退到此路径（DSH NEXT 升级后的新路径） |
-| ~~旧 DSH 运行时路径~~ | ~~`C:\\Users\\<user>\.dsh\dsh-runtimes\dsh-next-primary-runtime\...`~~ | **已失效**（该目录当前不存在）；任何脚本/文档不得再引用旧路径 |
+| Node.js（DSH 随附兜底） | **v24.21.0**（`C:\Users\<user>\AppData\Local\Programs\DSH NEXT\resources\runtime\x64\primary-runtime\dependencies\node\bin\node.exe`） | 系统 PATH 中无 node；`vendor\node` 缺失时 `tools/node.cmd` 回退到此路径（DSH NEXT 升级后的新路径） |
+| ~~旧 DSH 运行时路径~~ | ~~`<DSH_HOME>\dsh-runtimes\dsh-next-primary-runtime\...`~~ | **已失效**（该目录当前不存在）；任何脚本/文档不得再引用旧路径 |
 | `node:sqlite` | 可用（`DatabaseSync` 内存库建表/写入/查询验证通过） | 选型关键依据，见 ADR-001 |
 | pnpm | 11.28.5（`...\DSH NEXT\resources\runtime\x64\primary-runtime\dependencies\pnpm\bin\pnpm.mjs`） | 通过 `tools/pnpm.cmd` 调用（优先 vendor Node + DSH pnpm）；npm/pnpm 需 `--allow-build=<pkg>` 才允许 postinstall |
 | Python | 3.14.7（PATH），另有 3.12.12（uv）与 3.10 | Alpha 0.1 核心不使用 Python；GPU 探测通过 nvidia-smi |
@@ -43,10 +43,10 @@ GPU 可用（CUDA 驱动层健康，`nvidia-smi` 正常枚举）。GPU 不存在
 | 项目 | 实测值 / 证据 |
 |---|---|
 | DSH 产品 | DSH NEXT（Electron 桌面版） |
-| 安装目录 | `C:\\Users\\<user>\AppData\Local\Programs\DSH NEXT`，`resources/app.asar` + `app.asar.unpacked` |
+| 安装目录 | `C:\Users\<user>\AppData\Local\Programs\DSH NEXT`，`resources/app.asar` + `app.asar.unpacked` |
 | DSH 包版本 | `@deepseek-ai/dsh-agent-preset` = **0.2.2-rc.1**（`app.asar.unpacked/node_modules/@deepseek-ai/dsh-agent-preset/package.json`） |
 | 插件体系 | Cordis bundle：`package.json` 的 `dsh.bundle.patch` 指向 `cordis.patch.yml`；loader patch 插入/覆盖插件条目 |
-| 当前 profile | `desktop`（`DSH_PROFILE=desktop`）；目录 `C:\\Users\\<user>\.dsh\profiles\desktop`，含 `cordis.patch.yml`、`package.json`（`dsh.profile.bundles` 列表） |
+| 当前 profile | `desktop`（`DSH_PROFILE=desktop`）；目录 `<DSH_HOME>\profiles\desktop`，含 `cordis.patch.yml`、`package.json`（`dsh.profile.bundles` 列表） |
 | 已装第三方 bundle | `dsh-whale-widget@0.4.2`（npm 包，含 `lib/index.js` + `cordis.patch.yml`）、`dsh-plugin-ai-design-skills`（`link:` 本地目录包）——证明正式第三方插件链路真实可用 |
 | 插件安装机制 | 本会话 `plugin_manager` 工具（`install_bundle`/`set_bundle`/`list_plugins`），由 profile Loader 热加载 |
 | Host 事件（已验证目录） | `session/event`（提交后事件流）、`agent/inbox/inserted`、`agent/status`、`tools/execute`、`tools/result`、`session/created`、`system-prompt/*` 等 |
@@ -96,7 +96,7 @@ $NODE = 'D:\FCA\FCA-Memory-Atlas\vendor\node\node.exe'
 & $NODE --version
 & $NODE -e "const s=require('node:sqlite'); const db=new s.DatabaseSync(':memory:'); db.exec('CREATE TABLE t(a)'); console.log('ok')"
 # DSH 随附 Node/pnpm（vendor 缺失时 tools/node.cmd、tools/pnpm.cmd 的回退路径）
-$DSH_DEPS = 'C:\\Users\\<user>\AppData\Local\Programs\DSH NEXT\resources\runtime\x64\primary-runtime\dependencies'
+$DSH_DEPS = 'C:\Users\<user>\AppData\Local\Programs\DSH NEXT\resources\runtime\x64\primary-runtime\dependencies'
 & "$DSH_DEPS\node\bin\node.exe" --version
 & $NODE "$DSH_DEPS\pnpm\bin\pnpm.mjs" --version
 # 安装包构建（NSIS 3.04；TEMP 由 build.js 指向 D: 盘规避 mmap 限制）
@@ -104,8 +104,8 @@ $DSH_DEPS = 'C:\\Users\\<user>\AppData\Local\Programs\DSH NEXT\resources\runtime
 # 安装/启动/卸载实测
 pwsh -NoProfile -File 'D:\FCA\FCA-Memory-Atlas\installer\install-test.ps1'
 # DSH 真实插件环境
-Get-Content 'C:\\Users\\<user>\.dsh\profiles\desktop\package.json'
-Get-Content 'C:\\Users\\<user>\.dsh\profiles\desktop\node_modules\dsh-whale-widget\cordis.patch.yml'
+Get-Content '<DSH_HOME>\profiles\desktop\package.json'
+Get-Content '<DSH_HOME>\profiles\desktop\node_modules\dsh-whale-widget\cordis.patch.yml'
 # 运行时内省（本会话工具）
 # cordis_inspect_query(host, Config, listConfigs) / (host, Event, listEvents) / (host, Service, listService)
 ```
@@ -117,8 +117,8 @@ Get-Content 'C:\\Users\\<user>\.dsh\profiles\desktop\node_modules\dsh-whale-widg
 | 场景 | 路径 | 版本 |
 |---|---|---|
 | 项目构建/开发（首选） | `D:\FCA\FCA-Memory-Atlas\vendor\node\node.exe` | v24.11.0 |
-| DSH 随附（兜底） | `C:\\Users\\<user>\AppData\Local\Programs\DSH NEXT\resources\runtime\x64\primary-runtime\dependencies\node\bin\node.exe` | v24.21.0 |
-| ~~旧路径（已失效，禁止引用）~~ | ~~`C:\\Users\\<user>\.dsh\dsh-runtimes\...`~~ | — |
+| DSH 随附（兜底） | `C:\Users\<user>\AppData\Local\Programs\DSH NEXT\resources\runtime\x64\primary-runtime\dependencies\node\bin\node.exe` | v24.21.0 |
+| ~~旧路径（已失效，禁止引用）~~ | ~~`<DSH_HOME>\dsh-runtimes\...`~~ | — |
 
 - `tools/node.cmd`、`tools/env.ps1`、`tools/pnpm.cmd` 均已优先 vendor Node，回退 DSH NEXT 新路径。
 - `installer/build.js` 的 Node 检测：`FCA_NODE` → `vendor\node\node.exe` → DSH NEXT 新路径 → `C:\Program Files\nodejs`，任一存在即可；旧 `dsh-runtimes` 路径已移除。
@@ -137,8 +137,8 @@ Get-Content 'C:\\Users\\<user>\.dsh\profiles\desktop\node_modules\dsh-whale-widg
 
 | 交付物 | 路径 |
 |---|---|
-| Windows x64 安装包 | `artifacts\installer\FCA-Memory-Atlas-Setup-0.1.0-x64.exe` |
-| 安装包 SHA256 元数据 | `artifacts\installer\FCA-Memory-Atlas-Setup-0.1.0-x64.sha256.json` |
+| Windows x64 安装包（v0.2.0，含 Unity WebGL + 插件 tgz） | `artifacts\installer\FCA-Memory-Atlas-Setup-0.2.0-x64.exe` |
+| 安装包 SHA256 元数据 | `artifacts\installer\FCA-Memory-Atlas-Setup-0.2.0-x64.sha256.json` |
 | 安装/启动/卸载实测报告 | `artifacts\reports\install-test-<timestamp>.json` + `docs/INSTALL_TEST.md` |
 | 构建证据（makensis 日志/构建 JSON） | `artifacts\reports\install-build-*` |
 | 安装包内容清单 | 安装目录 `BUILD_INFO.json`（构建时写入 payload） |
@@ -149,11 +149,11 @@ Get-Content 'C:\\Users\\<user>\.dsh\profiles\desktop\node_modules\dsh-whale-widg
 
 实测证据（最小实验，均可复现）：
 
-- 在 DSH `pwsh` 中 `& vendor\node\node.exe probe.mjs`：脚本内 `process.env.TEMP` 仍是 `C:\\Users\\<user>\AppData\Local\Temp`，但：
+- 在 DSH `pwsh` 中 `& vendor\node\node.exe probe.mjs`：脚本内 `process.env.TEMP` 仍是 `C:\Users\<user>\AppData\Local\Temp`，但：
   - 写 `%TEMP%\probe.txt`、`%USERPROFILE%\Desktop\probe.txt` → `EPERM: operation not permitted`；
   - 写 `D:\FCA\...\.cache\probe.txt` → 成功（工作区可写）；
   - 子进程里 `whoami /groups` → **`Mandatory Label\Low Mandatory Level`**。
-- `C:\\Users\\<user>\AppData\Local\Temp\Low` 目录 ACL 含 `<HOST>\CodexSandboxUsers`（Modify）；Low IL 进程的 `GetTempPath()` 返回该目录。
+- `C:\Users\<user>\AppData\Local\Temp\Low` 目录 ACL 含 `<HOST>\CodexSandboxUsers`（Modify）；Low IL 进程的 `GetTempPath()` 返回该目录。
 - 从 DSH shell `Start-Process`（或 cmd → exe）启动 NSIS 安装包：安装文件解压到工作区成功，但
   - 安装日志写到 `%TEMP%\Low\fca-install.log`；
   - `HKCU\Software\Microsoft\Windows\CurrentVersion\Uninstall\FCAMemoryAtlas` 未创建；
@@ -170,3 +170,16 @@ Get-Content 'C:\\Users\\<user>\.dsh\profiles\desktop\node_modules\dsh-whale-widg
 | Electron 冒烟测试 | DSH shell 内需清 `ELECTRON_RUN_AS_NODE` + `--no-sandbox`（§7.2），且注意其 %TEMP% 被重定向到 `%TEMP%\Low`（测试日志/截图输出路径应使用项目目录） |
 
 > 该限制属于 DSH 工具执行环境（Windows 沙箱），不是 FCA 产品行为；在普通桌面会话（资源管理器双击、开始菜单）中安装/卸载完全正常，已由 WMI 正常令牌会话实测验证（见 `docs/INSTALL_TEST.md`）。
+
+### 7.5 v0.2.0 Unity 星云（WebGL 内嵌）构建与集成环境（2026-11-12 实测）
+
+| 项 | 实测值 |
+|---|---|
+| Unity 版本 | Unity **2022.3.62f3c1**（`D:\Unity\Hub\Editor\2022.3.62f3c1`，Windows；**WebGL Build Support 模块已安装**；Built-in RP，无需 URP/HDRP） |
+| 构建方式 | Unity batchmode（`unity/FCANebula/scripts/build.ps1`，`-batchmode -quit -executeMethod`）；WebGL 输出到 `artifacts/unity/FCANebulaWebGL/`（`index.html` + `Build/*.wasm/*.data/*.loader.js/*.framework.js` + `TemplateData/`）；standalone 构建保留为开发/备用，默认不随安装包分发 |
+| 数据源 | 内嵌播放器通过桌面注入的本地 Runtime URL/token 拉取 `GET /api/v1/graph` + `/state` + `/memory/{id}`；轮询刷新（无外部网络依赖） |
+| Electron 集成 | `desktop/` 内置本地静态服务 + iframe 内嵌 Unity WebGL；`nebulaEngine`（默认 `unity`）；资源缺失/加载失败时回退内置 WebGL 星云；集成自检 `node scripts/unity-integration-check.js`（PASS，证据 `artifacts/unity/integration-report.json`） |
+| 截图验证 | `artifacts/unity/shots-final/`（3 张真实 Runtime 截图 + `screenshots-manifest.json`，`sample_data=false`/`connected=true`/arm 统计）；桌面内嵌联调截图 `artifacts/unity/integration-*.png` |
+| 测试环境限制 | DSH 工具 shell 内嵌套启动 Electron 可能 `0x80000003` 崩溃（需清空 `ELECTRON_RUN_AS_NODE`/`CHROME_CRASHPAD_PIPE_NAME` 并加 `--no-sandbox`，仅测试环境）；Unity WebGL 需要 WebGL2/GPU 能力，无 GPU 时回退内置 WebGL 星云 |
+
+**v0.2.0 安装包 payload 变化：** 新增 `unity/FCANebulaWebGL`（Unity WebGL 构建，wasm/data 压缩后增量约 10–20 MiB，具体见构建报告 `payload.unity_bytes`）与 `dsh_plugin`（插件 0.2.1 tgz + README）；卸载器同步清理 `unity/`、`dsh_plugin/` 目录。构建证据见 `artifacts/reports/install-build-*.json`。

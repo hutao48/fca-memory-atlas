@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FCA Nebula | Unity WebGL</title>
+    <link rel="shortcut icon" href="TemplateData/favicon.ico">
+    <style>
+      html, body {
+        margin: 0;
+        padding: 0;
+        width: 100%;
+        height: 100%;
+        background: #04060d;
+        overflow: hidden;
+      }
+      #unity-container {
+        position: fixed;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        background: #04060d;
+      }
+      #unity-canvas {
+        display: block;
+        width: 100% !important;
+        height: 100% !important;
+        background: #04060d;
+        outline: none;
+      }
+      #unity-loading-bar {
+        position: absolute;
+        left: 50%;
+        top: 50%;
+        transform: translate(-50%, -50%);
+        display: none;
+        color: #cfe0f5;
+        font-family: "Microsoft YaHei", "Segoe UI", sans-serif;
+        font-size: 14px;
+        text-align: center;
+        letter-spacing: 0.08em;
+      }
+      #fca-loading-title {
+        margin-bottom: 10px;
+        font-size: 15px;
+        color: #8fd7f0;
+      }
+      #unity-progress-bar-empty {
+        width: 240px;
+        height: 6px;
+        margin: 0 auto;
+        border-radius: 3px;
+        background: rgba(120, 160, 210, 0.22);
+        overflow: hidden;
+      }
+      #unity-progress-bar-full {
+        width: 0%;
+        height: 100%;
+        border-radius: 3px;
+        background: linear-gradient(90deg, #57c9e8, #8a6fe6);
+        transition: width 0.15s linear;
+      }
+      #fca-status {
+        position: absolute;
+        left: 50%;
+        bottom: 18px;
+        transform: translateX(-50%);
+        color: rgba(150, 180, 220, 0.55);
+        font-family: "Microsoft YaHei", "Segoe UI", sans-serif;
+        font-size: 11px;
+        letter-spacing: 0.06em;
+        pointer-events: none;
+        white-space: nowrap;
+      }
+      #unity-warning {
+        position: absolute;
+        left: 50%;
+        top: 10px;
+        transform: translateX(-50%);
+        max-width: 90%;
+        font-family: "Microsoft YaHei", "Segoe UI", sans-serif;
+        font-size: 12px;
+        z-index: 20;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="unity-container">
+      <canvas id="unity-canvas" width={{{ WIDTH }}} height={{{ HEIGHT }}} tabindex="-1"></canvas>
+      <div id="unity-loading-bar">
+        <div id="fca-loading-title">FCA NEBULA · 星云渲染加载中</div>
+        <div id="unity-progress-bar-empty"><div id="unity-progress-bar-full"></div></div>
+      </div>
+      <div id="unity-warning"> </div>
+      <div id="fca-status">Unity WebGL · 等待 Runtime 数据</div>
+      <pre id="fca-state-json" style="display:none"></pre>
+    </div>
+
+    <script>
+      // FCA Nebula WebGL bootstrap (custom template).
+      // Electron integration contract:
+      //   index.html?runtime-url=http://127.0.0.1:17860&token=<bearer>&quality=high&view=0
+      // The Unity player reads those query parameters from Application.absoluteURL.
+      // Unity -> page: window.__FCA_NEBULA_STATE__, window.__FCA_READY__ and
+      //                window 'message' events: {type:'fca-unity-ready'|'fca-unity-state', payload:{}}
+      // Page -> Unity: window.FCA_NEBULA.postCommand('view:1') / SendMessage to 'NebulaApp'.
+      var container = document.querySelector("#unity-container");
+      var canvas = document.querySelector("#unity-canvas");
+      var loadingBar = document.querySelector("#unity-loading-bar");
+      var progressBarFull = document.querySelector("#unity-progress-bar-full");
+      var warningBanner = document.querySelector("#unity-warning");
+      var statusLine = document.querySelector("#fca-status");
+
+      function unityShowBanner(msg, type) {
+        var div = document.createElement("div");
+        div.innerHTML = msg;
+        div.style.padding = "6px 12px";
+        div.style.margin = "4px 0";
+        div.style.borderRadius = "4px";
+        div.style.background = type === "error" ? "rgba(170, 40, 50, 0.92)" : "rgba(150, 110, 30, 0.92)";
+        div.style.color = "#fff";
+        warningBanner.appendChild(div);
+        if (type !== "error") {
+          setTimeout(function () { if (div.parentNode) div.parentNode.removeChild(div); }, 6000);
+        }
+      }
+
+      function updateStatusFromState(state) {
+        if (!state) return;
+        var text = "Unity WebGL · " + (state.connected ? "已连接 Runtime" : (state.sample ? "SAMPLE 数据" : "等待 Runtime"));
+        if (typeof state.nodes === "number") {
+          text += " · 节点 " + state.nodes + " · 关系 " + state.edges + " · 旋臂 " + state.arms;
+        }
+        statusLine.textContent = text;
+        // Machine readable for acceptance tooling: Edge --dump-dom exposes this element.
+        try { document.querySelector("#fca-state-json").textContent = JSON.stringify(state); } catch (e) {}
+      }
+
+      window.addEventListener("fca-unity-state", function (event) { updateStatusFromState(event.detail); });
+      window.addEventListener("fca-unity-ready", function (event) {
+        var payload = event.detail || {};
+        loadingBar.style.display = "none";
+        statusLine.style.display = "none"; // the in-canvas HUD has the same information
+        updateStatusFromState(payload);
+        // Expose a simple hook for acceptance tooling.
+        window.__FCA_NEBULA_READY_INFO__ = payload;
+      });
+
+      var buildUrl = "Build";
+      var loaderUrl = buildUrl + "/{{{ LOADER_FILENAME }}}";
+      var config = {
+        dataUrl: buildUrl + "/{{{ DATA_FILENAME }}}",
+        frameworkUrl: buildUrl + "/{{{ FRAMEWORK_FILENAME }}}",
+#if USE_THREADS
+        workerUrl: buildUrl + "/{{{ WORKER_FILENAME }}}",
+#endif
+#if USE_WASM
+        codeUrl: buildUrl + "/{{{ CODE_FILENAME }}}",
+#endif
+        streamingAssetsUrl: "StreamingAssets",
+        companyName: {{{ JSON.stringify(COMPANY_NAME) }}},
+        productName: {{{ JSON.stringify(PRODUCT_NAME) }}},
+        productVersion: {{{ JSON.stringify(PRODUCT_VERSION) }}},
+        showBanner: unityShowBanner,
+        // Keep the WebGL framebuffer in sync with the iframe size (Electron panel resizes).
+        matchWebGLToCanvasSize: true
+      };
+
+      canvas.addEventListener("webglcontextlost", function (event) {
+        event.preventDefault();
+        statusLine.textContent = "WebGL context lost · 请刷新页面";
+      }, false);
+
+      loadingBar.style.display = "block";
+
+      var unityInstance = null;
+      var script = document.createElement("script");
+      script.src = loaderUrl;
+      script.onload = function () {
+        createUnityInstance(canvas, config, function (progress) {
+          progressBarFull.style.width = (100 * progress) + "%";
+        }).then(function (instance) {
+          unityInstance = instance;
+          window.__FCA_NEBULA_UNITY__ = instance;
+          loadingBar.style.display = "none";
+          updateStatusFromState(window.__FCA_NEBULA_STATE__);
+        }).catch(function (message) {
+          unityShowBanner(message, "error");
+          statusLine.textContent = "Unity WebGL 启动失败: " + message;
+        });
+      };
+      document.body.appendChild(script);
+
+      window.FCA_NEBULA = {
+        getState: function () {
+          return window.__FCA_NEBULA_STATE__ || { ready: !!window.__FCA_READY__ };
+        },
+        getInstance: function () { return unityInstance; },
+        postCommand: function (command) {
+          if (unityInstance) {
+            unityInstance.SendMessage("FCA Nebula System", "OnJsCommand", command);
+            return true;
+          }
+          return false;
+        },
+        setView: function (view) { return this.postCommand("view:" + view); },
+        setQuality: function (quality) { return this.postCommand("quality:" + quality); },
+        refresh: function () { return this.postCommand("refresh"); }
+      };
+    </script>
+  </body>
+</html>

@@ -1,4 +1,4 @@
-﻿# DSH 插件环境报告（真实证据版）
+# DSH 插件环境报告（真实证据版）
 
 - 项目：FCA Alpha 0.1 / Product B（DSH 正式插件）
 - 调查与实现者：Teammate `dsh-plugin`
@@ -6,6 +6,8 @@
 - 结论：**真实 DSH 插件 SDK 可用且已完成真实安装、真实加载、真实 Agent 调用与真实 Runtime 通信验证**。不存在“需要伪造 SDK”的情况；有 3 项 DSH 真实限制被实测记录（见 §10），均已给出绕过方案或如实标注。
 
 > **2026-11-12 更新（真实 Runtime 已交付）**：真实 FCA Local Runtime `0.1.0` 就绪后完成复测——安装 → 加载 → 4 个工具注册 → 真实 Agent 调用 → 真实 Runtime HTTP/SQLite 往返全部通过；stub 时代证据已替换为真实 Runtime 证据（§9）。同时 DSH NEXT 2.0.22 删除了旧 `%USERPROFILE%\.dsh\dsh-runtimes` 目录，插件 Node 探测链已修复并在真实 Host 内验证（§9.4）。
+
+> **2026-11-12 更新（插件 v0.2）**：插件升级到 `0.2.0`（工作区归属 `workspace:<label>` + Agent 思考节点 `autoMemoryAgentNodes`）。真实安装（`application:"applied"`）→ Host 日志 `plugin loaded {…,"autoMemoryAgentNodes":"summary"}` → `fca_status.plugin.version=0.2.0` → 真实子代理会话 `turn/end` 聚合出带 `workspace:FCA` / `Agent思考节点` 标签的 `procedural` 记忆（`mem_<redacted>`，body 三节 + 真实工具节点 + project 关系）。详见 §12。
 
 > 本文所有结论均来自三类证据之一：(a) 本机 DSH 安装目录内的真实源码/清单文件（Host 侧文件读取，路径在 `...\resources\app.asar` 内可直接读取）；(b) `cordis_inspect_query` 的内省结果；(c) 本机真实执行产生的命令输出与 Host 日志。凡未验证的项都标为「未验证」。
 
@@ -15,7 +17,7 @@
 
 | 项 | 实测值 | 证据 |
 |---|---|---|
-| 产品 | DSH NEXT / `dsh-desktop-next` | `C:\\Users\\<user>\AppData\Local\Programs\DSH NEXT\resources\app.asar\package.json` → `"name": "dsh-desktop-next"` |
+| 产品 | DSH NEXT / `dsh-desktop-next` | `C:\Users\<user>\AppData\Local\Programs\DSH NEXT\resources\app.asar\package.json` → `"name": "dsh-desktop-next"` |
 | 应用版本 | `2.0.22-next` | 同上 `"version": "2.0.22-next"` |
 | DSH 核心包 | `@deepseek-ai/dsh` = `0.2.2-rc.1`（agent-loop / tools / system-prompt / plugin-manager 等同版本） | 同上 `dependencies`；`app.asar.unpacked/node_modules/@deepseek-ai/dsh-agent-preset/package.json` → `"version": "0.2.2-rc.1"` |
 | Cordis | `@deepseek-ai/cordis` = `4.1.0`，loader `@deepseek-ai/cordis-plugin-loader` = `1.1.0` | `app.asar/package.json` 依赖；`app.asar/node_modules/@deepseek-ai/cordis/package.json` |
@@ -26,8 +28,8 @@
 
 | 项 | 实测值 | 证据 |
 |---|---|---|
-| 当前 profile | `desktop` | 本会话 shell 中 `$env:DSH_PROFILE` = `desktop`；`$env:DSH_PROFILE_DIR` = `C:\\Users\\<user>\.dsh\profiles\desktop` |
-| profile 目录 | `C:\\Users\\<user>\.dsh\profiles\desktop` | 目录存在，含 `cordis.yml`、`cordis.patch.yml`、`package.json`、`node_modules`、`.plugin-manager` |
+| 当前 profile | `desktop` | 本会话 shell 中 `$env:DSH_PROFILE` = `desktop`；`$env:DSH_PROFILE_DIR` = `<DSH_HOME>\profiles\desktop` |
+| profile 目录 | `<DSH_HOME>\profiles\desktop` | 目录存在，含 `cordis.yml`、`cordis.patch.yml`、`package.json`、`node_modules`、`.plugin-manager` |
 | 组合入口 | `cordis.yml` 内容为 `[]`（真正的条目由 bundle 层 + profile patch 层叠加） | 文件首行注释：`# dsh profile root — an empty entry list. The tree is composed as patches: each bundle in package.json's dsh.profile.bundles, then cordis.patch.yml, then --patch overlays.` |
 | bundle 选择表 | `package.json` → `dsh.profile.bundles: [...]`（有序；安装新 bundle 追加到末尾，影响配置优先级） | `plugin-manager` README §Use this package：“A bundle toggle changes `package.json`'s ordered `dsh.profile.bundles` list.” |
 | 用户 patch 层 | `cordis.patch.yml`（`- id: … / disabled / config / name` 覆盖与 insert） | 该文件真实内容（含 `desktop-shell`、`plugin-market`、`agent-default-model` 等覆盖行） |
@@ -68,8 +70,8 @@
 
 证据与对照：
 - 语法与字段来自插件开发技能 `app.asar.unpacked\node_modules\@deepseek-ai\dsh-agent-preset\skills\cordis-plugin-development\references\host-plugin.md`（manifest / locale / icon / files / `dsh.bundle.patch`）；模板 `templates/decoration/package.json`、`templates/mcp/package.json`。
-- 真实第三方实例：`C:\\Users\\<user>\.dsh\profiles\desktop\node_modules\dsh-whale-widget\`（`package.json` 含 `dsh.bundle.patch`、`cordis.patch.yml` 为 `- insert: [{id, name}]`）；`@momasiku/dsh-pilot`（含 `lib/index.js` + `cordis.patch.yml` + `exports`）。
-- 显示元数据：`locale/en.json` + `locale/zh.json` 的 `meta.title` / `meta.description`，`icon.svg`（≤256 KiB，包内相对路径）。当前用户 locale = `zh`（`C:\\Users\\<user>\.dsh\desktop-locale.json` → `{"desktop":"zh"}`）。
+- 真实第三方实例：`<DSH_HOME>\profiles\desktop\node_modules\dsh-whale-widget\`（`package.json` 含 `dsh.bundle.patch`、`cordis.patch.yml` 为 `- insert: [{id, name}]`）；`@momasiku/dsh-pilot`（含 `lib/index.js` + `cordis.patch.yml` + `exports`）。
+- 显示元数据：`locale/en.json` + `locale/zh.json` 的 `meta.title` / `meta.description`，`icon.svg`（≤256 KiB，包内相对路径）。当前用户 locale = `zh`（`<DSH_HOME>\desktop-locale.json` → `{"desktop":"zh"}`）。
 
 ## 4. 加载机制（Loader 源码证据）
 
@@ -205,7 +207,7 @@ export type CommandResult =
 07:38:48.257Z [info] bridge started {"connected":true,"phase":"connected",…} [host.kernel.fca-memory-bridge]
 ```
 
-（`C:\\Users\\<user>\.dsh\logs\desktop-next.log`）
+（`<DSH_HOME>\logs\desktop-next.log`）
 
 ## 8. 安装 / 热加载 / 验证方式
 
@@ -214,10 +216,11 @@ export type CommandResult =
 | `plugin_manager install_bundle target=D:\FCA\FCA-Memory-Atlas\dsh_plugin` | **2026-11-12 复测（真实交付态）**：`application: "applied"`、`warnings: []`、`packageResult.exitCode: 0`；pnpm 输出 `+ dsh-plugin-fca-memory 0.1.0 <- D:\FCA\FCA-Memory-Atlas\dsh_plugin`（`Done in 870ms`，logPath `…\.plugin-manager\logs\operation-g0OjQP\pnpm.log`）；**未触发** `restart-required`/`module-comparison`（安装前 profile 中无该插件，`main.js`+`src/` 是首次加载的新模块 URL） |
 | 内省确认行 | `Config.listConfigs{name:'dsh-plugin-fca-memory'}` → `entry id: include:fca-memory-bridge, patchId: fca-memory-bridge, status: unsupported`（见 §10.1）；`plugin_manager list_plugins` 中该行 `enabled:true, fiberPhase:"active"`（交付态：已选中且实例在运行，Host 重启后按 profile 的 bundle 列表自动重新加载） |
 | 内省确认工具 | `Tool.listTools` 输出含 `fca_memory_search`、`fca_memory_store`、`fca_memory_get`、`fca_status`（在 Agent 可见工具集中） |
-| 安装日志 | `C:\\Users\\<user>\.dsh\profiles\desktop\.plugin-manager\logs\operation-*\pnpm.log` |
+| 安装日志 | `<DSH_HOME>\profiles\desktop\.plugin-manager\logs\operation-*\pnpm.log` |
 | 权限 | `plugin_manager` 每个动作要求 `danger-full-access` 或该次调用的审批；本会话为 danger-full-access。安装的 Host 代码在进程内执行、位于工作区 sandbox 之外（plugin-manager README §Use this package / §Summary） |
 | 卸载 | `plugin_manager remove_bundle target=dsh-plugin-fca-memory`：删除 `link:` 依赖 + 取消 bundle 选择（pnpm 输出 `- dsh-plugin-fca-memory link:…`） |
 | HMR 行为 | 改动已加载的 link 包文件后，后续 install/remove/enable 返回 `application:"restart-required"`, `restartReason:"module-comparison"`，Host 日志 `changed modules keep running their previous code until a restart`（见 §10.2） |
+| **v0.2 升级重装（2026-11-12 19:20，真实）** | tgz 解包到**新目录** `.cache\plugin-relink-v020\package`（新模块 URL）→ `plugin_manager remove_bundle target=dsh-plugin-fca-memory`（`changed:true, application:"applied"`）→ `install_bundle target=D:\FCA\FCA-Memory-Atlas\.cache\plugin-relink-v020\package`（`changed:true, application:"applied", version:"0.2.0"`，pnpm `+ dsh-plugin-fca-memory 0.2.0 <- …\plugin-relink-v020\package`）；**未出现** `restart-required`/`module-comparison`，插件在运行中完成升级 |
 
 **验证方式（本插件实际使用）**：`plugin_manager` 结果里的 `application`/`warnings` 判状态 → `cordis_inspect_query` 确认注册（Config/Tool）→ Host 日志确认 `apply` 执行 → 真实 Agent 工具调用 → 观察 Runtime 侧访问日志。
 
@@ -226,7 +229,7 @@ export type CommandResult =
 2026-11-12 复测重新打包的真实输出（使用 DSH 自带 `node.exe` + `…\dependencies\pnpm\bin\pnpm.mjs` 执行等价命令，不依赖批处理包装；`tools\pnpm.cmd` 包装同样实测可用）：
 
 ```
-package: dsh-plugin-fca-memory@0.1.0
+package: dsh-plugin-fca-memory@0.2.0
 Tarball Contents
 cordis.patch.yml
 icon.svg
@@ -235,6 +238,8 @@ locale/zh.json
 main.js
 package.json
 README.md
+src/agent-nodes.js
+src/auto-memory.js
 src/bridge.js
 src/capture.js
 src/client.js
@@ -244,12 +249,13 @@ src/launcher.js
 src/logger.js
 src/prompt-context.js
 src/tools.js
+src/workspace.js
 Tarball Details
-D:\FCA\FCA-Memory-Atlas\artifacts\plugin\dsh-plugin-fca-memory-0.1.4.tgz
+D:\FCA\FCA-Memory-Atlas\artifacts\plugin\dsh-plugin-fca-memory-0.2.0.tgz
 ```
 
-- 包内为 `package/` 前缀（npm pack 规范），`tar -tzf` 复核 **17 个文件**（v0.1.4 新增 `src/auto-memory.js`），无多余文件（`files` 字段生效）；
-- 大小 `38,161 B`，SHA256 `4005ECF3F966F611C75B5747DA71B0A64AFA352D8B2EC2A68C2C5567460D6553`（v0.1.4：`autoMemory` 完全自动记忆、仅真实用户消息过滤、自动拉起成功后立即 flush；包内 `main.js`/`src/**`/`cordis.patch.yml`/`README.md` 与源码逐文件哈希一致，仅 `package.json` 被 npm-pack 去掉文件末尾换行）；
+- 包内为 `package/` 前缀（npm pack 规范），`tar -tzf` 复核 **19 个文件**（v0.2 新增 `src/workspace.js`、`src/agent-nodes.js`），无多余文件（`files` 字段生效）；
+- 大小 `47,543 B`，SHA256 `FD7CD90B9074C7EE2FCB2747366345109F4851D1B312E17F3F353C78F1564A2F`（v0.2：`workspace:<label>` 工作区归属 + Agent 思考节点 `autoMemoryAgentNodes`；包内 `main.js`/`src/**`/`cordis.patch.yml` 与源码逐文件哈希一致，`package.json` 仅因 npm-pack 去掉文件末尾换行而哈希不同）；
 - 两种安装方式（目录直接装 / 解包后装）与卸载、升级、link 热替换限制见 `dsh_plugin/README.md` §1、§7。
 
 ## 9. 真实端到端验证（本机实际输出）
@@ -263,11 +269,11 @@ fca_status        → {"ok":true,"plugin":{"phase":"connected","started_at":"202
                      "runtime":{"url":"http://127.0.0.1:17860","reachable":true,"http_status":200,
                                 "version":"0.1.0","api_version":"1","compatible":true,"status":"ok","db":"ok"},
                      "capture":{"policy":"turn-summaries","enabled":true,"queued":0}}
-fca_memory_store  → {"ok":true,"memory":{"id":"mem_e9fce187752fbcf65a7906c9691c38a2",
+fca_memory_store  → {"ok":true,"memory":{"id":"mem_<redacted>",
                      "title":"FCA 插件真实链路验证：DSH Agent 写入","version":1,"deleted":false},
                      "runtime":{"version":"0.1.0","api_version":"1"}}
 fca_memory_search → {"ok":true,"count":2,"took_ms":1.17,"items":[{"id":"mem_e9fce187…","score":1},
-                     {"id":"mem_141a67e43e978e5dc8399f6ca9a78a0a","score":0.20839}]}
+                     {"id":"mem_<redacted>","score":0.20839}]}
 fca_memory_get    → {"ok":true,"memory":{"id":"mem_e9fce187…","body":"…","project":{"name":"FCA Memory Atlas"}},
                      "relations":[{"relation_type":"belongs_to_project",…}],"versions_count":1}
 fca_memory_get(非法 id) → {"ok":false,"error":{"code":"BAD_REQUEST",…}}
@@ -279,7 +285,7 @@ fca_memory_get(非法 id) → {"ok":false,"error":{"code":"BAD_REQUEST",…}}
 
 ### 9.2 Runtime 侧真实访问日志（证明 HTTP 链路，客户端头 `X-FCA-Client: dsh-plugin`）
 
-`C:\\Users\\<user>\AppData\Local\FCA-Memory-Atlas\logs\runtime-20261112.log`（真实 Runtime 的 `kind:"access"` 记录；`user_agent:"node"` 即插件在 Host 内 `fetch` 发出的请求）：
+`C:\Users\<user>\AppData\Local\FCA-Memory-Atlas\logs\runtime-20261112.log`（真实 Runtime 的 `kind:"access"` 记录；`user_agent:"node"` 即插件在 Host 内 `fetch` 发出的请求）：
 
 ```
 {"ts":"2026-11-12T08:24:02.551Z","msg":"http.request","kind":"access","method":"GET","path":"/health","status":200,"trace_id":"trc_8b1df118…","client":"dsh-plugin","ip":"127.0.0.1","user_agent":"node"}
@@ -289,7 +295,7 @@ fca_memory_get(非法 id) → {"ok":false,"error":{"code":"BAD_REQUEST",…}}
 {"ts":"2026-11-12T08:24:13.728Z","msg":"http.request","kind":"access","method":"GET","path":"/api/v1/memory/mem_141a67e4…","status":200,"trace_id":"trc_ec4b22c6…","client":"dsh-plugin","ip":"127.0.0.1","user_agent":"node"}
 {"ts":"2026-11-12T08:24:14.681Z","msg":"http.request","kind":"access","method":"POST","path":"/api/v1/memory/search","status":200,"trace_id":"trc_b4c3fdf3…","client":"dsh-plugin","ip":"127.0.0.1","user_agent":"node"}
 {"ts":"2026-11-12T08:24:14.682Z","msg":"http.request","kind":"access","method":"GET","path":"/api/v1/memory/mem_e9fce187…","status":200,"trace_id":"trc_10a3d5fe…","client":"dsh-plugin","ip":"127.0.0.1","user_agent":"node"}
-{"ts":"2026-11-12T08:37:32.549Z","msg":"http.request","kind":"access","method":"POST","path":"/api/v1/event","status":201,"trace_id":"trc_9ecb880f7365ce0c5548d05b4f5fd02a","client":"dsh-plugin","ip":"127.0.0.1","content_length":"621","user_agent":"node"}
+{"ts":"2026-11-12T08:37:32.549Z","msg":"http.request","kind":"access","method":"POST","path":"/api/v1/event","status":201,"trace_id":"trc_<redacted>","client":"dsh-plugin","ip":"127.0.0.1","content_length":"621","user_agent":"node"}
 （另有每 30s 一条 GET /health 200，`connectIntervalMs=30000` 的连接维护轮询）
 ```
 
@@ -303,7 +309,7 @@ Runtime 侧事件日志 `<FCA_HOME>\events\events-2026-11.jsonl` 同时落库 15
 
 ```
 auto_start: { "attempted": true, "started": true,
-  "node": "C:\\\\Users\\\\<user>\\.dsh\\dsh-runtimes\\dsh-next-primary-runtime\\dependencies\\node\\bin\\node.exe",
+  "node": "C:\\Users\\<user>\\.dsh\\dsh-runtimes\\dsh-next-primary-runtime\\dependencies\\node\\bin\\node.exe",
   "node_source": "dsh-runtime", "pid": 15996, "error": null }
 ```
 
@@ -315,7 +321,7 @@ auto_start: { "attempted": true, "started": true,
 ```json
 "auto_start": {
   "attempted": true, "started": true,
-  "node": "C:\\\\Users\\\\<user>\\AppData\\Local\\Programs\\DSH NEXT\\resources\\runtime\\x64\\primary-runtime\\dependencies\\node\\bin\\node.exe",
+  "node": "C:\\Users\\<user>\\AppData\\Local\\Programs\\DSH NEXT\\resources\\runtime\\x64\\primary-runtime\\dependencies\\node\\bin\\node.exe",
   "node_source": "dsh-runtime",
   "script": "D:\\FCA\\FCA-Memory-Atlas\\runtime\\bin\\fca-runtime.js",
   "pid": 9984, "error": null }
@@ -374,7 +380,7 @@ auto_start: { "attempted": true, "started": true,
 
 ```powershell
 # 真实 Runtime（交付口径：默认数据目录 %LOCALAPPDATA%\FCA-Memory-Atlas、默认端口 17860）
-$node = 'C:\\Users\\<user>\AppData\Local\Programs\DSH NEXT\resources\runtime\x64\primary-runtime\dependencies\node\bin\node.exe'
+$node = 'C:\Users\<user>\AppData\Local\Programs\DSH NEXT\resources\runtime\x64\primary-runtime\dependencies\node\bin\node.exe'
 & $node 'D:\FCA\FCA-Memory-Atlas\runtime\bin\fca-runtime.js' init
 & $node 'D:\FCA\FCA-Memory-Atlas\runtime\bin\fca-runtime.js' serve   # 后台常驻
 Invoke-RestMethod http://127.0.0.1:17860/health
@@ -389,11 +395,40 @@ cordis_inspect_query(host, Tool, listTools, {})
 cordis_inspect_query(host, Service, listService, {service:'commands'})
 cordis_inspect_query(host, Event, listEvents, {event:'session/event'})
 # Host 日志
-Select-String 'C:\\Users\\<user>\.dsh\logs\desktop-next.log' -Pattern 'fca-memory-bridge|plugin loaded|module-comparison'
+Select-String '<DSH_HOME>\logs\desktop-next.log' -Pattern 'fca-memory-bridge|plugin loaded|module-comparison'
 # 打包（复测使用的等价命令：DSH 自带 node + pnpm.mjs）
-$dshNode = 'C:\\Users\\<user>\AppData\Local\Programs\DSH NEXT\resources\runtime\x64\primary-runtime\dependencies\node\bin\node.exe'
-$pnpmMjs = 'C:\\Users\\<user>\AppData\Local\Programs\DSH NEXT\resources\runtime\x64\primary-runtime\dependencies\pnpm\bin\pnpm.mjs'
+$dshNode = 'C:\Users\<user>\AppData\Local\Programs\DSH NEXT\resources\runtime\x64\primary-runtime\dependencies\node\bin\node.exe'
+$pnpmMjs = 'C:\Users\<user>\AppData\Local\Programs\DSH NEXT\resources\runtime\x64\primary-runtime\dependencies\pnpm\bin\pnpm.mjs'
 & $dshNode $pnpmMjs --dir dsh_plugin pack --pack-destination D:\FCA\FCA-Memory-Atlas\artifacts\plugin
 ```
 
 > 注：`plugin_manager` 内部的 pnpm 调用在 Host 进程内执行；打包也可用 `tools\node.cmd` / `tools\pnpm.cmd` 包装（本机实测 pnpm `11.28.5`，见 `docs/ENVIRONMENT_REPORT.md`）。
+
+## 12. v0.2 更新：工作区归属 + Agent 思考节点（2026-11-12 真实验证）
+
+插件 `0.2.0` 在**不重启 DSH** 的前提下完成真实升级与验证。与 DSH 环境相关的结论：
+
+| 项 | 真实结果 | 证据 |
+|---|---|---|
+| 新模块 URL 热替换 | 升级走"tgz 解包到新目录 `.cache\plugin-relink-v020\package` → remove_bundle → install_bundle"，未触发 `restart-required`/`module-comparison`；三个新改模块（`main.js`、`src/auto-memory.js`、`src/config.js`）均以新 URL 加载 | `plugin_manager` 返回 `application:"applied"`；Host 日志 `plugin loaded {…,"autoMemoryAgentNodes":"summary"}`（§8 表格"v0.2 升级重装"行、`artifacts/plugin/v0.2-install-log.json`） |
+| SessionHeader.cwd 可用性 | DSH NEXT 2.0.22 的 `Session` 对象暴露不可变 `header`（`get id() { return this.header.id }`，`snapshotSessionHeader` 返回创建元数据，含 `cwd`）；插件从 `session.header.cwd` 真实解析出 `D:\FCA`，`fca_status.auto_memory.workspace.last.source="session.header.cwd"` | `app.asar` 内 `@deepseek-ai/dsh-session/lib/types/index.js`（`Session` 类、`SessionHeader` 校验 `cwd` 必须为绝对路径）+ 真实 `fca_status` |
+| 真实 session 事件形状（格式 v4） | `assistant/message.data.message.content[]` 含 `reasoning`/`text` 块；`tool/call.data={turn,step,callId,name,arguments(JSON 字符串)}`；`tool/result.data.message={role,toolCallId,isError,content[]}`；`turn/end.data={turn,reason}`。插件按真实形状解析，无字段猜测 | 真实会话日志 `<DSH_HOME>\sessions\--D-FCA--\*\session.v4.jsonl.zstd` 解压核对（`c5ed45ae…` 134 事件、`session-d9ea76db…` 5104 事件）；回放证据 `artifacts/plugin/v0.2-session-replay.json` |
+| 跨会话采集 | 插件在 Host 根作用域监听 `session/event`，真实子代理会话（`c3769704…`）的 `turn/end` 聚合写入 Runtime 记忆 `mem_<redacted>`（`procedural`，tags=`Agent思考节点,DSH会话,workspace:FCA`，project=`FCA 工作区`，body 3349 字三节） | `artifacts/plugin/v0.2-verification.json`；`GET /api/v1/memory/{id}` 原始响应（`docs/PLUGIN_INTEGRATION_TEST.md` §11.3） |
+| 计数可观测 | `fca_status.auto_memory.agentNodes.counters`：`eventsSeen=96, turnsSeen=1, captured=1, stored=1, toolCallsSeen=33, toolResultsSeen=33`；`workspace.last={label:"FCA",cwd:"D:\FCA",source:"session.header.cwd"}`；`capture.counters.received=sent=1` | 真实 `fca_status` 调用（`artifacts/plugin/v0.2-install-log.json`） |
+| 交付包 | `artifacts/plugin/dsh-plugin-fca-memory-0.2.0.tgz`：47,543 B，19 文件（新增 `src/workspace.js`、`src/agent-nodes.js`），SHA256 `FD7CD90B9074C7EE2FCB2747366345109F4851D1B312E17F3F353C78F1564A2F` | `tar -tzf` + 解包目录与源码逐文件哈希一致（同名文件仅 `package.json` 因 npm-pack 去尾换行不同） |
+| 单元测试 | `tools\node.cmd --test tests\unit\plugin\plugin-pure.test.js` → 21/21 PASS | 本机真实执行输出 |
+
+未覆盖/限制：① 真实 Runtime 中"用户消息带 workspace:FCA"需升级后第一条真实用户输入才会出现（消息路径已由 21 项单测 + 5133 个真实事件回放覆盖，见 `docs/PLUGIN_INTEGRATION_TEST.md` §11.4）；② Config 的 UI 投影限制、`/fca` UI 执行缺口与 §10 相同，未改变；③ 插件无 Client/Web 半，星云按 `workspace:*` 分组渲染由桌面/Unity 侧消费。
+
+### 12.1 v0.2.1：子会话 user-role 消息过滤（2026-11-12，真实回归）
+
+| 项 | 真实结果 | 证据 |
+|---|---|---|
+| 根因（真实 session header） | DSH session 格式 v4：人类根会话 `delegationDepth:0` 且无 `parentSession`/`origin`；子代理会话含 `parentSession`+`origin:"subagent"`+`delegationDepth:1`。子代理的 spawn prompt 由 Host 以 `user/message` 且 `source.kind:"user"` 下发 → v0.2.0 误采为 episodic 记忆 | `inspect-headers` 解压真实日志：`session-d9ea76db…`（root）/`c5ed45ae…`/`3c4e45fe…`/`3d3bcb2a…`（child）；`@deepseek-ai/dsh-session` 的 SessionHeader 校验（`parentSession`/`origin` 只允许 `"subagent"`/`delegationDepth`） |
+| 过滤实现 | 新增 `src/session-scope.js`：`parentSession`（兼容 `parentSessionId`）| `delegationDepth>0` | `origin==="subagent"` → child。仅 child 的 **user 消息**跳过（`skippedChildSession` 计数）；root 真实用户消息不受影响；Agent 思考节点对 child 照常采集 | `fca_status.auto_memory.sessions={root,child,policy}`、`counters.skippedChildSession` |
+| 真实回归 | v0.2.1 安装后启动真实 workflow 子代理会话 `6d4ba096…`（child，depth 2）：其 spawn prompt（user/message+source.kind=user）**未产生 episodic 记忆**；`skippedChildSession=5, captured=0`；该子会话 Agent 节点仍写入（测试残留已软删） | `artifacts/plugin/v0.2.1-child-filter-evidence.json`；`docs/PLUGIN_INTEGRATION_TEST.md` §11.7.3 |
+| 噪声清理 | 3 条 teammate 提示词记忆（desktop-integration/memory-pipeline/unity-renderer spawn prompt）经 `DELETE /api/v1/memory/{id}` 真实软删除；graph nodes 12→9、memories 11→8，graph/默认列表不再出现、`include_deleted=true` 可在回收站检出 | `artifacts/plugin/v0.2.1-cleanup-evidence.json`；§11.7.4 |
+| 交付/安装 | `artifacts/plugin/dsh-plugin-fca-memory-0.2.1.tgz`：51,184 B，20 文件（新增 `src/session-scope.js`），SHA256 `ED799DC1D2F186DF862D34D42A88FAEC1CFD905C12D2BDE9EC91054537937403`；新目录 `.cache/plugin-relink-v021/package` remove+install（`application:"applied"`, version 0.2.1），未重启 DSH；Host 日志 `10:34:51.555Z plugin loaded` | `artifacts/plugin/v0.2.1-install-log.json` |
+| 单测 | `tools\node.cmd --test tests\unit\plugin\plugin-pure.test.js` → **24/24 PASS**（新增 session-scope 形状判定、子会话过滤+计数器、子会话 Agent 节点仍采集、根会话不受影响） | 本机真实执行输出 |
+
+观察（非插件行为，如实标注）：① 升级前后旧自动记忆的 `workspace:FCA` 标签由其它流程/Lead 回填（插件无历史迁移代码）；② 19:34:26 Runtime pid 14248→52104 为其它 teammate 操作（非本任务），数据目录/数据完整。

@@ -27,7 +27,7 @@ function isSafePathInside(target, base) {
 }
 
 function registerIpc(options) {
-  const { settingsStore, runtimeManager, logger, getWindow } = options;
+  const { settingsStore, runtimeManager, logger, getWindow, unityEmbed, unityViewer } = options;
   let streamHandle = null;
   let streamWindowId = null;
 
@@ -72,6 +72,20 @@ function registerIpc(options) {
   }
   wireRuntimeEvents();
 
+  // Unity 星云（默认内嵌 WebGL）：主进程 → renderer 状态广播（iframe 地址、资源加载、错误、回退依据）
+  if (unityEmbed) {
+    unityEmbed.onStatus((status) => {
+      // 注意：status.frameUrl 含 token，只通过 IPC 交给 renderer，不打印到日志
+      if (logger) logger.debug('unity-embed', `状态 ${status.state}`, { port: status.port, dir: status.dir, tokenAvailable: status.tokenAvailable });
+      broadcast('fca:unity:status', status);
+    });
+  }
+  // 旧版 standalone 进程（仅 FCA_UNITY_STANDALONE=1 开发开关时启用）
+  if (unityViewer) {
+    unityViewer.onStatus((status) => broadcast('fca:unity:status', status));
+    unityViewer.onCrash((status) => broadcast('fca:unity:crash', status));
+  }
+
   // ------------------------------------------------------------------ app
   ipcMain.handle('fca:app:info', () => {
     const settings = settingsStore.get();
@@ -103,6 +117,7 @@ function registerIpc(options) {
         node: process.versions.node,
         v8: process.versions.v8,
       },
+      unity: unityStatusSnapshot(),
       paths: {
         data: settings.dataDir,
         logs: paths.logsDir(settings.dataDir),
@@ -223,6 +238,99 @@ function registerIpc(options) {
   ipcMain.handle('fca:runtime:log-tail', (_event, payload) => {
     const limit = Math.min(500, Math.max(1, Number(payload && payload.limit) || 100));
     return { entries: runtimeManager.getLogTail(limit) };
+  });
+
+  // ------------------------------------------------------------------ unity
+  // 默认：Unity WebGL 内嵌（本地静态服务 + renderer iframe）。旧 standalone 进程仅在 FCA_UNITY_STANDALONE=1 时保留。
+  const unityUnavailable = {
+    available: false,
+    mode: 'embedded-webgl',
+    state: 'unavailable',
+    running: false,
+    engine: 'webgl',
+    requestedEngine: settingsStore.get().nebulaEngine || 'unity',
+    dir: null,
+    frameUrl: null,
+    message: '主进程未启用 Unity 星云集成',
+    logTail: [],
+  };
+
+  function unityStatusSnapshot() {
+    if (unityEmbed) return unityEmbed.getStatus();
+    if (unityViewer) return unityViewer.getStatus();
+    return unityUnavailable;
+  }
+
+  ipcMain.handle('fca:unity:status', () => unityStatusSnapshot());
+
+  ipcMain.handle('fca:unity:start', async (_event, startOptions = {}) => {
+    try {
+      if (unityEmbed) {
+        const result = await unityEmbed.start();
+        return { ok: Boolean(result.ok), status: result.status, frameUrl: result.frameUrl || null, error: result.error || null, alreadyRunning: Boolean(result.alreadyRunning) };
+      }
+      if (unityViewer) {
+        const result = await unityViewer.open({});
+        return { ok: Boolean(result.ok), status: result.status, error: result.error || null, alreadyRunning: Boolean(result.alreadyRunning) };
+      }
+      return { ok: false, status: unityUnavailable, error: { code: 'UNITY_UNAVAILABLE', message: 'Unity 星云集成未启用' } };
+    } catch (error) {
+      logger.error('ipc', 'Unity 星云启动异常', { message: error.message });
+      return { ok: false, status: unityStatusSnapshot(), error: { code: 'UNITY_START_FAILED', message: error.message } };
+    }
+  });
+
+  ipcMain.handle('fca:unity:stop', async (_event, stopOptions = {}) => {
+    try {
+      if (unityEmbed) {
+        const result = await unityEmbed.stop({ reason: (stopOptions && stopOptions.reason) || 'user' });
+        return { ok: true, status: result.status, wasRunning: Boolean(result.wasRunning) };
+      }
+      if (unityViewer) {
+        const status = await unityViewer.close({ reason: (stopOptions && stopOptions.reason) || 'user' });
+        return { ok: true, status: status.status || unityViewer.getStatus() };
+      }
+      return { ok: false, status: unityUnavailable, error: { code: 'UNITY_UNAVAILABLE', message: 'Unity 星云集成未启用' } };
+    } catch (error) {
+      logger.error('ipc', 'Unity 星云停止异常', { message: error.message });
+      return { ok: false, status: unityStatusSnapshot(), error: { code: 'UNITY_STOP_FAILED', message: error.message } };
+    }
+  });
+
+  // 兼容旧通道（0.1.x/开发脚本可能仍调用）：open→start，close→stop
+  ipcMain.handle('fca:unity:open', async () => {
+    if (unityEmbed) {
+      try {
+        const result = await unityEmbed.start();
+        return { ok: Boolean(result.ok), status: result.status, frameUrl: result.frameUrl || null, error: result.error || null, alreadyRunning: Boolean(result.alreadyRunning) };
+      } catch (error) {
+        return { ok: false, status: unityStatusSnapshot(), error: { code: 'UNITY_START_FAILED', message: error.message } };
+      }
+    }
+    if (unityViewer) {
+      const result = await unityViewer.open({});
+      return { ok: Boolean(result.ok), status: result.status, error: result.error || null };
+    }
+    return { ok: false, status: unityUnavailable, error: { code: 'UNITY_UNAVAILABLE', message: 'Unity 星云集成未启用' } };
+  });
+
+  ipcMain.handle('fca:unity:close', async (_event, closeOptions = {}) => {
+    if (unityEmbed) {
+      const result = await unityEmbed.stop({ reason: (closeOptions && closeOptions.reason) || 'user' });
+      return { ok: true, status: result.status, wasRunning: Boolean(result.wasRunning) };
+    }
+    if (unityViewer) {
+      const status = await unityViewer.close({ reason: (closeOptions && closeOptions.reason) || 'user' });
+      return { ok: true, status: status.status || unityViewer.getStatus() };
+    }
+    return { ok: false, status: unityUnavailable, error: { code: 'UNITY_UNAVAILABLE', message: 'Unity 星云集成未启用' } };
+  });
+
+  ipcMain.handle('fca:unity:log-tail', (_event, payload) => {
+    const limit = Math.min(400, Math.max(1, Number(payload && payload.limit) || 80));
+    if (unityEmbed) return unityEmbed.getLogTail(limit);
+    if (unityViewer) return unityViewer.getLogTail(limit);
+    return { entries: [] };
   });
 
   // ------------------------------------------------------------------ net
@@ -427,6 +535,7 @@ function registerIpc(options) {
       'fca:app:quit', 'fca:app:open-path', 'fca:app:show-item', 'fca:app:open-external',
       'fca:runtime:status', 'fca:runtime:start', 'fca:runtime:stop', 'fca:runtime:restart',
       'fca:runtime:health', 'fca:runtime:log-tail',
+      'fca:unity:status', 'fca:unity:start', 'fca:unity:stop', 'fca:unity:open', 'fca:unity:close', 'fca:unity:log-tail',
       'fca:net:request', 'fca:net:stream:start', 'fca:net:stream:stop',
       'fca:dialog:select-directory', 'fca:dialog:open-file', 'fca:dialog:save-file',
       'fca:dialog:message-box', 'fca:dialog:confirm',

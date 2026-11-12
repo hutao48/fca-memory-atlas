@@ -1,135 +1,154 @@
-# FCA Memory Atlas
+# FCA Memory Atlas — v0.2.0
 
-**本地优先的认知记忆基础设施**：一个 Windows 桌面软件（星云式记忆可视化）+ 一个本地认知 Runtime + 一个 DeepSeek Harness(DSH) 正式插件。记忆、关系、布局、身份和认知状态全部保存在你的本机，LLM 只是可替换的 API 能力，不依赖任何云端记忆库。
+FCA（Fish Cognitive Architecture）的本地认知基础设施实现，交付三个可运行产品：
 
-> Local-first cognitive memory infrastructure for Windows: a nebula-style memory atlas desktop app, a local HTTP Runtime (SQLite, `127.0.0.1` only), and an official DeepSeek Harness plugin. All memories stay on your machine.
-
-![FCA Memory Atlas — nebula overview](docs/images/atlas-overview.jpg)
-
-| 星云总览 | 聚类星域 | 全新空库（无假数据） |
+| 产品 | 说明 | 目录 / 交付物 |
 |---|---|---|
-| ![overview](docs/images/atlas-overview.jpg) | ![clusters](docs/images/atlas-clusters.jpg) | ![empty](docs/images/atlas-empty.jpg) |
+| **FCA Memory Atlas** | 可安装的 Windows x64 桌面软件（Electron 38 + **Unity 星云渲染**，内置 WebGL 回退） | `desktop/`；安装包 `artifacts/installer/FCA-Memory-Atlas-Setup-0.2.0-x64.exe` |
+| **FCA Local Runtime** | 本地认知服务（127.0.0.1:17860，SQLite，零第三方运行时依赖） | `runtime/`；随安装包分发（含随包 Node 24） |
+| **FCA DSH Plugin** | 正式 DSH Cordis 插件 v0.2.1（安装到 DSH profile，连接同一 Runtime） | `dsh_plugin/`；产物 `artifacts/plugin/dsh-plugin-fca-memory-0.2.1.tgz` |
+| **FCA Nebula（Unity WebGL）** | Unity 2022.3 WebGL 星云渲染器（工作区旋臂 + Agent 思考节点可视化），**内嵌 Electron 界面**（本地静态服务 + iframe） | `unity/FCANebula/`（源码含 standalone/WebGL 构建脚本）；随安装包分发到 `<安装目录>\unity\FCANebulaWebGL\`，构建产物 `artifacts/unity/FCANebulaWebGL/` |
 
-真实运行录屏：[docs/media/fca-atlas-nebula.webm](docs/media/fca-atlas-nebula.webm)（VP9，10s，真实 renderer + 真实 Runtime 数据）。
+三者共享同一个 FCA Local Runtime 和同一套数据；任一 UI 关闭不影响数据完整性。LLM 通过 API Gateway 调用，模型可替换；本地记忆的读写不依赖任何 LLM。
 
-## 核心特性
+v0.2.0 重点：**星云渲染迁移到 Unity WebGL 并内嵌 Electron 界面（默认引擎，失败自动回退内置 WebGL 星云）**；同一工作区的记忆自动归到星云的**一条旋臂**（`workspace:<label>` 标签驱动，旧记忆无需迁移）；DSH 插件把每个 Agent 回合聚合为一条 **Agent 思考节点**记忆（推理/工具/结论，脱敏后入库）；插件 v0.2.1 过滤子会话 user-role 消息并清理历史噪声。详见 `CHANGELOG.md` 与 `docs/UNITY_NEBULA.md`。
 
-- **星云式记忆可视化**：WebGL2 体积星云（数据驱动的气体云、尘埃暗带、深度层次、恒星核、关系光丝），不是普通节点图；空库只显示真实深空背景，不伪造节点。支持 `ultra/high/medium/low/off` 性能档位，关闭特效仍可完整交互。
-- **完整记忆编辑**：新建/编辑/软删除/回收站/合并/拆分/版本历史/diff/冲突检测/撤销重做；关系是独立数据实体（可增删改，不级联删除两端）。
-- **本地认知 Runtime**：`127.0.0.1:17860`，SQLite WAL，Bearer token，统一错误码 + trace id，SSE 实时推送（断线用 `Last-Event-ID` 补发），FTS/中文 bigram 全文检索 + 本地语义检索，备份/恢复/导入/导出/迁移/健康检查。
-- **DSH 正式插件（Cordis bundle）**：给 Agent 注册 `fca_memory_search / fca_memory_store / fca_memory_get / fca_status`；**完全自动记忆**（`autoMemory`）——你在任意 DSH 会话里输入的每条真实用户消息会自动写成一条真实 FCA 记忆并实时出现在桌面星图；事件审计采集、可选系统提示注入、Runtime 自动拉起。
-- **本地优先与安全**：默认仅回环监听；LLM Provider 可替换（DeepSeek / OpenAI-compatible / 自定义），API Key 本机 AES-256-GCM 加密、日志/界面掩码；离线时本地浏览与编辑不降级，LLM 请求入队而不是伪装成功。
-- **可追溯**：每条记忆/关系都有来源、时间、版本、操作主体（user/agent/system/plugin）与 JSONL 事件审计镜像。
+## 快速开始（安装版，推荐）
 
-## 系统要求
+1. 双击 `artifacts/installer/FCA-Memory-Atlas-Setup-0.2.0-x64.exe`（per-user 安装，无需管理员）。
+2. 按向导安装（默认目录 `%LOCALAPPDATA%\Programs\FCA Memory Atlas`），完成后可从桌面/开始菜单启动。
+3. 首次启动进入**首次启动向导**：选择数据目录（默认 `%LOCALAPPDATA%\FCA-Memory-Atlas`）→ 端口（默认 17860）→ 初始化空库 → 健康检查 → 完成。
+4. 星云视图默认在 Electron 窗口内嵌渲染 **Unity WebGL**（本地静态服务 + iframe）；可在“设置 → 星云引擎”切换 `Unity / WebGL`，Unity 资源缺失或启动失败时自动回退内置 WebGL 星云。
+5. 详细用户手册：`docs/USER_MANUAL.md`（安装版内也有 `<安装目录>\docs\USER_MANUAL.md` 和开始菜单“使用说明”）。
 
-| 项 | 要求 |
+静默安装 / 自定义目录：
+
+```powershell
+# 默认目录静默安装
+.\FCA-Memory-Atlas-Setup-0.2.0-x64.exe /S
+# 自定义目录（/D= 必须是最后一个参数，路径不要加引号）
+.\FCA-Memory-Atlas-Setup-0.2.0-x64.exe /S /D=D:\Apps\FCA-Memory-Atlas
+# 安装日志：%TEMP%\fca-install.log；静默卸载：<安装目录>\Uninstall.exe /S（默认保留用户数据）
+```
+
+安装包校验：同目录 `FCA-Memory-Atlas-Setup-0.2.0-x64.sha256.json`（`Get-FileHash -Algorithm SHA256` 比对）。
+
+当前交付包（2026-11-12 v0.2.0 终版构建；安装/卸载实测记录见 `docs/INSTALL_TEST.md`）：
+
+| 项目 | 值 |
 |---|---|
-| 操作系统 | Windows 10/11 x64 |
-| 运行时 | 安装包已自带 Node 24（用源码运行需 Node ≥ 24） |
-| 磁盘 | 安装 ≈ 360 MB，数据目录按需增长 |
-| GPU（可选） | NVIDIA GPU 可用 WebGL 加速；无 GPU 时软件渲染仍可用 |
-| DSH 插件 | DSH NEXT（`2.0.22-next` 实测）或兼容的 Cordis Host |
+| 文件 | `artifacts/installer/FCA-Memory-Atlas-Setup-0.2.0-x64.exe` |
+| 大小 | 111.2 MB（116,599,178 B） |
+| SHA256 | `b84a656d810431a3923191caf3dcab2604d2508008c6d606a1d2aac01098c10c` |
+| 版本 / API | 0.2.0 / v1 |
+| 构建时间 | 2026-11-12T11:12:16.813Z |
+| payload | 231 文件 / 388,322,796 B（desktop 72、runtime 69、docs 21、unity WebGL 19 / 24.9 MiB、dsh_plugin 2 / 50 KiB）（desktop / runtime / docs / **unity** / vendor node） |
+| 构建证据 | ``artifacts/reports/install-build-2026-11-12T11-50-47-010Z.json` + 同名 `.makensis.log`` + 同名 `.makensis.log` |
 
-## 快速开始
+> Unity 星云组件为可选 payload：构建时 `artifacts/unity/FCANebulaWebGL/index.html` 存在则打包到 `<安装目录>\unity\FCANebulaWebGL\`，并在 `BUILD_INFO.json` / `install-report.ini` 记录；缺失时桌面自动回退内置 WebGL 星云。standalone 版（`artifacts/unity/FCANebula`）默认不随安装包分发（开发/备用）。
 
-### A. 安装包（推荐，普通用户）
+## 快速开始（开发）
 
-1. 从 [Releases](https://github.com/hutao48/fca-memory-atlas/releases/latest) 下载 `FCA-Memory-Atlas-Setup-*.exe`（或在源码中运行 `node installer/build.js` 自行构建）；也可直接双击仓库内构建产物（若有）。
-2. **从 Windows 文件资源管理器双击**安装（per-user，无需管理员）。不要从自动化沙箱/终端以受限权限启动，否则写注册表/快捷方式会被拒绝。
-3. 首次启动 → 首次启动向导：选择数据目录（默认 `%LOCALAPPDATA%\FCA-Memory-Atlas`）与端口（默认 `17860`）→ 初始化空库。
-4. 开始创建记忆即可；数据目录可随时在设置中更换。
-
-### B. 源码运行（开发者）
+本机 PATH 无 node，使用项目封装脚本（优先 `vendor\node\node.exe`，v24.11.0）：
 
 ```powershell
-git clone https://github.com/hutao48/fca-memory-atlas.git
-cd fca-memory-atlas
-node --version   # 需要 >= 24
-node runtime/bin/fca-runtime.js init
-node runtime/bin/fca-runtime.js serve          # 另开终端可保持运行
-node scripts/start-desktop.js                  # 开发模式启动桌面 UI
+# 环境（可选）：. .\tools\env.ps1
+.\tools\node.cmd --version
+.\tools\node.cmd runtime\bin\fca-runtime.js init
+.\tools\node.cmd runtime\bin\fca-runtime.js serve
+# 另开终端启动桌面（自动拉起/连接 Runtime；默认拉起 Unity 星云）
+.\tools\node.cmd scripts\start-desktop.js
+# 仅验证 Unity 集成（路径解析 + 真实 Runtime 截图）：
+.\tools\node.cmd scripts\unity-integration-check.js --resolve-only
+.\tools\node.cmd scripts\unity-integration-check.js
 ```
 
-无系统 Node 时，安装 DSH 后可用其自带 Node，或使用仓库 `tools/node.cmd`（本机工具链封装）。
+> 本机 DSH 会话 shell 启动 Electron 需要先 `Remove-Item Env:ELECTRON_RUN_AS_NODE`（并清理 `CHROME_CRASHPAD_PIPE_NAME`）；de-elevated 测试 shell 另需 `--no-sandbox`（用户从 Explorer/快捷方式启动不需要）。详见 `docs/ENVIRONMENT_REPORT.md` §7.2 与 `docs/UNITY_NEBULA.md` §6.7。
 
-### C. 安装 DSH 正式插件
-
-通过 DSH 的 plugin manager 安装（**不要手改 profile 文件**）：
-
-```text
-plugin_manager action=install_bundle target=<repo>/dsh_plugin
-```
-
-然后让 Agent 调用 `fca_status` 确认 `runtime.reachable=true`、`api_version="1"`；`fca_memory_store` 写入一条记忆验证真实链路。插件默认开启 `autoMemory: user-messages`，之后的真实用户消息会自动进入记忆库。详见 [dsh_plugin/README.md](dsh_plugin/README.md)。
-
-### D. AI Agent 一键部署提示词
-
-仓库自带一段可交给 **DeepSeek 等 Agent 自主执行**的安装部署提示词：[`deploy/DEEPSEEK_AGENT_PROMPT.md`](deploy/DEEPSEEK_AGENT_PROMPT.md)（配套 `deploy/install-source.ps1` 引导脚本）。把该提示词和仓库地址交给 Agent，它会按步骤检查环境、安装/构建、初始化数据库、启动 Runtime、安装 DSH 插件并逐项验收。
-
-## 架构
-
-```mermaid
-flowchart LR
-  D["FCA Memory Atlas 桌面软件<br/>Electron + WebGL2 星云"] -- HTTP + SSE --> R
-  P["FCA DSH 插件<br/>Cordis bundle"] -- HTTP --> R
-  C["CLI / 脚本"] -- HTTP / CLI --> R
-  subgraph R["FCA Local Runtime（127.0.0.1:17860，唯一数据权威）"]
-    API["HTTP API /api/v1"] --- EVT["事件总线 + JSONL 审计 + SSE"]
-    API --- DOM["memory / relations / entities / identity / cognition / timeline / graph / layout"]
-    API --- LLM["LLM Gateway（Provider 可替换 / 最小上下文 / 离线队列）"]
-    DOM --- DB[("SQLite WAL")]
-  end
-```
-
-- 三个产品共享**同一个** Runtime 与**同一套**数据；关闭任一界面都不影响数据完整性。
-- 记忆读写不依赖任何 LLM；LLM 断开时本地功能不降级。
-- 完整性契约见 [`docs/PUBLIC_INTERFACE_FREEZE.md`](docs/PUBLIC_INTERFACE_FREEZE.md)，API 文档见 [`docs/API.md`](docs/API.md)。
-
-## 验证（真实命令）
+## 构建与验证命令
 
 ```powershell
-# Runtime 端到端冒烟（隔离数据目录，23 项检查）
-node scripts/verify.js --fca-home=.cache/verify --port=17880
-
-# 自动化测试（unit / integration / e2e / security / performance / install）
-node scripts/run-tests.js --all
-
-# 插件单元测试
-node --test "tests/unit/plugin/*.test.js"
+# 运行单元/集成/e2e 测试（QA 套件）
+.\tools\node.cmd scripts\run-tests.js
+# 契约/交付自检
+.\tools\node.cmd scripts\verify.js
+# 构建 Windows x64 安装包（输出 artifacts\installer\FCA-Memory-Atlas-Setup-<version>-x64.exe；含 Unity 组件）
+.\tools\node.cmd installer\build.js
+# 安装包真机安装 → 启动 → 连接 Runtime → 卸载 自动化实测（WMI 正常令牌会话；写 artifacts\reports\install-test-*.json）
+powershell -NoProfile -ExecutionPolicy Bypass -File installer\run-install-test.ps1
+# 截图/录屏采集（开发）
+.\tools\node.cmd scripts\capture.js
 ```
+
+构建注意（本机环境级限制）：
+
+- NSIS 3.04（x86）在 C: 盘系统 `%TEMP%` 下创建 >32MB 内存映射临时文件会失败；`installer/build.js` 已自动把 makensis 的 `TEMP/TMP` 指向 `installer\.staging\makensis-temp`（D: 盘）规避，详见 `docs/ENVIRONMENT_REPORT.md` §4.1。
+- **DSH 工具 shell 的子进程运行在 Low IL 沙箱**：直接在该 shell 里 `Start-Process` 安装包会导致 `%TEMP%` 重定向、注册表/快捷方式写入被静默拒绝（假失败）。安装/卸载测试必须用 `installer\run-install-test.ps1`（WMI 正常令牌）或真实用户双击；详见 `docs/ENVIRONMENT_REPORT.md` §7.4。
+
+## 交付物清单（v0.2.0）
+
+| 交付物 | 路径 |
+|---|---|
+| Windows x64 安装包（NSIS，per-user，含卸载器；含 Unity 星云） | `artifacts/installer/FCA-Memory-Atlas-Setup-0.2.0-x64.exe` |
+| 安装包 SHA256/体积元数据 | `artifacts/installer/FCA-Memory-Atlas-Setup-0.2.0-x64.sha256.json` |
+| 构建证据（makensis 日志 + 构建 JSON） | `artifacts/reports/install-build-*` |
+| 安装/启动/卸载实测报告 | `docs/INSTALL_TEST.md` + `artifacts/reports/install-test-*.json` |
+| 用户手册 | `docs/USER_MANUAL.md` |
+| 已知问题 | `docs/KNOWN_ISSUES.md` |
+| Unity 星云说明 | `docs/UNITY_NEBULA.md` + `artifacts/unity/shots-final/`（真实 Runtime 截图 ×3 + manifest）+ 桌面内嵌联调截图 `artifacts/unity/integration-*.png` |
+| DSH 插件包（v0.2.1） | `artifacts/plugin/dsh-plugin-fca-memory-0.2.1.tgz` |
+| 插件验证证据 | `docs/PLUGIN_INTEGRATION_TEST.md`、`artifacts/plugin/v0.2-*.json` |
+| 测试与性能报告（QA） | `docs/TEST_REPORT.md` + `artifacts/reports/` |
+| 截图证据 | `artifacts/screenshots/`（桌面 `final-*.png`）+ `artifacts/unity/shots/`（Unity 星云） |
+| 录屏 | `artifacts/recordings/` |
+
+## 文档
+
+- `docs/USER_MANUAL.md` — 用户手册（安装/首启向导/星图/Unity 星云/编辑/关系/时间线/搜索/数据管理/备份恢复/LLM/卸载/排错）
+- `docs/UNITY_NEBULA.md` — Unity 星云渲染：数据契约、工作区旋臂、构建（standalone/WebGL）、Electron 内嵌集成与回退、已知限制
+- `docs/KNOWN_ISSUES.md` — 已知问题与限制（含 QA 安全测试结论与 v0.2.0 新增项）
+- `docs/INSTALL_TEST.md` — 安装包真机安装/启动/卸载实测记录与证据
+- `docs/FINAL_ACCEPTANCE.md` — v0.2.0 最终验收报告
+- `docs/ENVIRONMENT_REPORT.md` — 环境调查与交付阶段修正（Node 路径/NSIS 构建限制/Electron 沙箱差异）
+- `docs/PUBLIC_INTERFACE_FREEZE.md` — 冻结的数据模型 / API / 事件 / 渲染契约（并行开发唯一契约）
+- `docs/API.md` — Runtime HTTP API 文档
+- `docs/ARCHITECTURE.md` — 架构与 ADR 技术决策（含 ADR-006 安装方案、ADR-007 LLM Gateway、ADR-008 DSH 插件）
+- `docs/TEST_REPORT.md` — 测试与性能报告（QA 产出）
+- `docs/DSH_PLUGIN_ENVIRONMENT_REPORT.md` — DSH 插件环境报告（真实 SDK 证据）
+- `docs/PLUGIN_INTEGRATION_TEST.md` — DSH 插件真实安装与端到端验证（T1–T17，含 v0.2 自动记忆/思考节点）
+- `deploy/DEEPSEEK_AGENT_PROMPT.md` — 可交给 Agent 自主执行的安装部署提示词
+- `CHANGELOG.md` — 变更日志
 
 ## 目录结构
 
 ```
-runtime/      FCA Local Runtime（Node 24 + node:sqlite，零第三方运行时依赖）
-desktop/      Electron 桌面软件（main 主进程 + renderer ESM + WebGL2 星云）
-dsh_plugin/   DSH 正式 Cordis 插件（bundle：cordis.patch.yml + main.js + src/）
-installer/    NSIS 安装包构建（build.js / installer.nsi）
-deploy/       AI Agent 部署提示词与源码引导脚本
-docs/         架构、接口冻结、API、用户手册、测试报告、已知问题、ADR
-tests/        unit / integration / e2e / security / performance / install
-scripts/      verify / run-tests / capture / record / fetch-* 等开发脚本
-config/       运行配置样例；data_template/ 全新空库说明
+FCA-Memory-Atlas/
+  artifacts/          交付物（installer/ 安装包、plugin/ 插件包、unity/ Unity 构建与截图、screenshots/ 桌面截图、reports/ 测试与构建证据）
+  config/             运行配置模板
+  data_template/      空白数据模板
+  desktop/            桌面应用（Electron main + renderer；入口 main/main.js；unity-viewer.js 负责 Unity 生命周期与回退）
+  docs/               全部文档 + docs/adr/
+  dsh_plugin/         DSH 正式插件（Cordis bundle；workspace 归属 + Agent 思考节点自动记忆）
+  installer/          安装包构建脚本（build.js / installer.nsi / install-test.ps1 / run-install-test.ps1 / LICENSE.txt）
+  runtime/            FCA Local Runtime（bin/ + src/；Node 标准库实现）
+  scripts/            开发脚本（fetch-*、start-desktop、capture、record、verify、bench、run-tests、unity-integration-check）
+  tests/              QA 测试套件（unit / integration / e2e / performance / install）
+  tools/              node.cmd / pnpm.cmd / env.ps1（本机 PATH 无 node）
+  unity/FCANebula/    Unity 2022.3 工程源码（C# 脚本 / shader / 场景 / standalone/WebGL 构建脚本）
+  vendor/             vendor/node/node.exe（随包 Node 24.11）
 ```
 
-## 已知限制
+## 原则
 
-详见 [`docs/KNOWN_ISSUES.md`](docs/KNOWN_ISSUES.md)。摘要：仅 Windows x64；Alpha 阶段无代码签名（SmartScreen 可能提示）；10000 节点布局/图数据为秒级同步计算（可交互规模 ≤1000 节点）；语义检索为本地确定性哈希向量（非神经网络）；自动记忆保存消息原文级别记录并受每时限流；本机回环场景下的安全风险项（ZIP 无解压上限、导入导出路径未限制、无限流）已在文档记录。
+1. **本地优先**：记忆、关系、布局、身份与认知状态保存在本机；默认只监听 127.0.0.1。
+2. **模型可替换**：LLM 经 Provider 接口调用；更换模型不丢数据；API Key 本地 AES-256-GCM 加密存储。
+3. **全新记忆库**：不迁移、不导入旧记忆库。
+4. **真实可用**：无 Mock 冒充、无假数据、无空实现；失败路径显式报错（含 trace id/日志路径）；Unity 失败自动回退 WebGL 而不是白屏。
+5. **可追溯**：记忆/关系变更记录来源、时间、版本与操作主体；Agent 思考节点保留回合/工作区来源。
+6. **数据安全**：备份/恢复/导出/审计完备；卸载默认保留用户数据并明确提示。
 
-## 文档
+## 版本
 
-| 文档 | 内容 |
-|---|---|
-| [docs/USER_MANUAL.md](docs/USER_MANUAL.md) | 用户手册：安装/首启向导/星图/编辑/关系/时间线/搜索/数据管理/LLM/排错 |
-| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | 架构与 ADR |
-| [docs/PUBLIC_INTERFACE_FREEZE.md](docs/PUBLIC_INTERFACE_FREEZE.md) | 冻结的数据模型 / API / 事件 / 错误码 / 渲染契约 |
-| [docs/API.md](docs/API.md) | HTTP API 文档 |
-| [docs/TEST_REPORT.md](docs/TEST_REPORT.md) | 测试与性能报告（真实数据） |
-| [docs/PLUGIN_INTEGRATION_TEST.md](docs/PLUGIN_INTEGRATION_TEST.md) | DSH 插件真实安装与端到端验证（含 autoMemory） |
-| [docs/KNOWN_ISSUES.md](docs/KNOWN_ISSUES.md) | 已知问题与边界 |
-| [CHANGELOG.md](CHANGELOG.md) | 变更日志 |
-
-## 许可证
-
-[MIT](LICENSE)。第三方组件（Electron / Chromium / Node.js 等）遵循其各自许可证；安装包内保留对应许可证文本。
+- **v0.2.0（2026-11-12）**：Unity 星云渲染（默认，WebGL 回退）、工作区旋臂、Agent 思考节点、DSH 插件 v0.2.1、安装包含 Unity 组件；文档与验收报告更新。详见 `CHANGELOG.md`。
+- v0.1.1（2026-11-12）：桌面 UI 热修（编辑器/记忆列表）。
+- v0.1.0（2026-11-12）：Alpha 0.1 三件套首次交付（桌面 + Runtime + DSH 插件 + NSIS 安装包）。

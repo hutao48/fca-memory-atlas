@@ -36,6 +36,19 @@
         autoMemoryMemoryType: episodic
         autoMemoryTags:
           - DSH自动记忆
+        # Agent thinking nodes (v0.2, 用户选择“更全”): every finished turn is
+        # aggregated into ONE procedural memory with three sections — 关键推理 /
+        # 工具执行（名称+参数摘要+结果摘要）/ 结论.  Redacted, length-capped,
+        # one memory per (session, turn), bounded by its own hourly limit.
+        # off | summary
+        autoMemoryAgentNodes: summary
+        autoMemoryAgentMaxToolNodes: 8
+        autoMemoryAgentReasoningChars: 1500
+        autoMemoryAgentConclusionChars: 800
+        autoMemoryAgentToolArgChars: 400
+        autoMemoryAgentToolResultChars: 600
+        autoMemoryAgentMaxChars: 12000
+        autoMemoryAgentMaxPerHour: 60
         # Prompt digest injection is opt-in.
         injectContext: false
         # Extra secrets redaction beyond the built-in patterns.

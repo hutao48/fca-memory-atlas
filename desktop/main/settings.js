@@ -1,4 +1,4 @@
-﻿'use strict';
+'use strict';
 
 /**
  * FCA Desktop — 桌面设置（desktop-settings.json）
@@ -34,12 +34,19 @@ function defaultSettings() {
     onboardingCompleted: false,
     // UI 偏好（其余 UI 状态由 renderer localStorage 管理）
     quality: 'high',
+    // 星云渲染引擎：unity（默认，内嵌 Unity WebGL 到 atlas 视图）/ webgl（内置 WebGL2 回退）。
+    // Unity WebGL 产物缺失或启动失败时由主进程/渲染层自动回退 WebGL，不阻塞其它功能。
+    nebulaEngine: 'unity',
+    // 高级：手动指定 Unity WebGL 构建目录（含 index.html）或旧版 standalone 可执行文件（仅开发/特殊部署）
+    unityWebglDir: null,
+    unityExePath: null,
     // 开发标记：使用 dev fixture（仅开发期有效，最终生产代码不包含假数据）
     devFixtures: false,
   };
 }
 
 const QUALITY_LEVELS = ['ultra', 'high', 'medium', 'low', 'off'];
+const NEBULA_ENGINES = ['unity', 'webgl'];
 
 function clampInt(value, min, max) {
   const n = Number.parseInt(value, 10);
@@ -98,6 +105,19 @@ function normalizeSettings(input, base = defaultSettings()) {
   if (raw.quality !== undefined) {
     if (!QUALITY_LEVELS.includes(raw.quality)) errors.push({ field: 'quality', message: `quality 必须是 ${QUALITY_LEVELS.join('/')}` });
     else next.quality = raw.quality;
+  }
+
+  if (raw.nebulaEngine !== undefined) {
+    if (!NEBULA_ENGINES.includes(raw.nebulaEngine)) errors.push({ field: 'nebulaEngine', message: `nebulaEngine 必须是 ${NEBULA_ENGINES.join('/')}` });
+    else next.nebulaEngine = raw.nebulaEngine;
+  }
+
+  for (const key of ['unityWebglDir', 'unityExePath']) {
+    if (raw[key] !== undefined) {
+      if (raw[key] === null || raw[key] === '') next[key] = null;
+      else if (typeof raw[key] !== 'string') errors.push({ field: key, message: `${key} 必须是路径字符串` });
+      else next[key] = path.resolve(raw[key]);
+    }
   }
 
   if (raw.schemaVersion !== undefined) {
@@ -193,11 +213,12 @@ function createSettingsStore(options = {}) {
   /**
    * 命令行参数覆盖（--fca-home / --port / capture 生命周期开关）：仅内存生效，不写盘。
    * @param {{dataDir?:string, port?:number, runtimeUrl?:string, autoStartRuntime?:boolean,
-   *          closeRuntimeOnExit?:boolean, allowExternalRuntime?:boolean, devFixtures?:boolean}} patch
+   *          closeRuntimeOnExit?:boolean, allowExternalRuntime?:boolean, devFixtures?:boolean,
+   *          nebulaEngine?:'unity'|'webgl'}} patch
    */
   function override(patch) {
     const clean = {};
-    for (const key of ['dataDir', 'port', 'runtimeUrl', 'autoStartRuntime', 'closeRuntimeOnExit', 'allowExternalRuntime', 'devFixtures']) {
+    for (const key of ['dataDir', 'port', 'runtimeUrl', 'autoStartRuntime', 'closeRuntimeOnExit', 'allowExternalRuntime', 'devFixtures', 'nebulaEngine']) {
       if (patch && patch[key] !== undefined && patch[key] !== null && patch[key] !== '') clean[key] = patch[key];
     }
     if (!Object.keys(clean).length) return get();
@@ -226,4 +247,4 @@ function createSettingsStore(options = {}) {
   };
 }
 
-module.exports = { createSettingsStore, defaultSettings, normalizeSettings, effectiveRuntimeUrl, QUALITY_LEVELS, SETTINGS_SCHEMA_VERSION };
+module.exports = { createSettingsStore, defaultSettings, normalizeSettings, effectiveRuntimeUrl, QUALITY_LEVELS, NEBULA_ENGINES, SETTINGS_SCHEMA_VERSION };

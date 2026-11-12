@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env node
+#!/usr/bin/env node
 /**
  * FCA Memory Atlas Windows 安装包构建脚本（无第三方依赖，离线可重复构建）。
  *
@@ -41,11 +41,18 @@ import {
 import { basename, join, relative, resolve } from 'node:path';
 import { PATHS, PROJECT_ROOT, ensureDir } from '../scripts/lib/common.js';
 
-const VERSION = JSON.parse(readFileSync(join(PROJECT_ROOT, 'package.json'), 'utf8')).version;
+// 容忍 UTF-8 BOM（PowerShell Set-Content 等工具写出的 JSON 可能带 BOM；Node JSON.parse 不接受）
+function readJsonFile(p) {
+  return JSON.parse(readFileSync(p, 'utf8').replace(/^\uFEFF/, ''));
+}
+
+const VERSION = readJsonFile(join(PROJECT_ROOT, 'package.json')).version;
 const options = new Set(process.argv.slice(2));
 const ALLOW_INCOMPLETE = options.has('--allow-incomplete');
 const COMPRESS = !options.has('--no-compress');
 const SKIP_RUNTIME = options.has('--skip-runtime');
+// 只生成并校验 payload（不编译 NSIS）：用于 payload 阶段验证与打包 CI 快速检查
+const PAYLOAD_ONLY = options.has('--payload-only');
 const BUILD_TIME = new Date();
 const BUILD_STAMP = BUILD_TIME.toISOString().replace(/[:.]/g, '-');
 
@@ -67,6 +74,8 @@ const criticalPayloadFiles = [
   'resources/app/main/preload.js',
   'resources/app/main/ipc.js',
   'resources/app/main/runtime-manager.js',
+  'resources/app/main/unity-viewer.js',
+  'resources/app/main/unity-embed.js',
   'resources/app/renderer/index.html',
   'resources/app/renderer/app.js',
   'runtime/bin/fca-runtime.js',
@@ -75,6 +84,10 @@ const criticalPayloadFiles = [
   'runtime/src/server/index.js',
   'node/node.exe',
   'docs/USER_MANUAL.md',
+  'docs/KNOWN_ISSUES.md',
+  'docs/INSTALL_TEST.md',
+  'docs/UNITY_NEBULA.md',
+  'docs/FINAL_ACCEPTANCE.md',
   'BUILD_INFO.json',
   'LICENSE',
 ];
@@ -140,6 +153,8 @@ mustExist(join(PROJECT_ROOT, 'desktop', 'main', 'main.js'), 'desktop/main/main.j
 mustExist(join(PROJECT_ROOT, 'desktop', 'main', 'preload.js'), 'desktop/main/preload.js');
 mustExist(join(PROJECT_ROOT, 'desktop', 'main', 'ipc.js'), 'desktop/main/ipc.js');
 mustExist(join(PROJECT_ROOT, 'desktop', 'main', 'runtime-manager.js'), 'desktop/main/runtime-manager.js');
+mustExist(join(PROJECT_ROOT, 'desktop', 'main', 'unity-viewer.js'), 'desktop/main/unity-viewer.js');
+mustExist(join(PROJECT_ROOT, 'desktop', 'main', 'unity-embed.js'), 'desktop/main/unity-embed.js');
 mustExist(join(PROJECT_ROOT, 'desktop', 'renderer', 'index.html'), 'desktop/renderer/index.html');
 mustExist(join(PROJECT_ROOT, 'desktop', 'renderer', 'app.js'), 'desktop/renderer/app.js');
 if (!SKIP_RUNTIME) {
@@ -153,12 +168,12 @@ for (const doc of ['USER_MANUAL.md', 'KNOWN_ISSUES.md', 'INSTALL_TEST.md']) {
 }
 
 // Node 24 运行时定位：优先项目 vendor（可复现），其次 DSH NEXT 随附运行时（本机开发环境兜底）。
-// 注意：旧的 C:\\Users\\<user>\.dsh\dsh-runtimes\... 路径已在 DSH NEXT 升级后失效，不再使用。
+// 注意：旧的 <DSH_HOME>\dsh-runtimes\... 路径已在 DSH NEXT 升级后失效，不再使用。
 const NODE_CANDIDATES = [
   { path: process.env.FCA_NODE, source: 'env:FCA_NODE' },
   { path: join(PROJECT_ROOT, 'vendor', 'node', 'node.exe'), source: 'vendor/node/node.exe' },
   {
-    path: 'C:\\\\Users\\\\<user>\\AppData\\Local\\Programs\\DSH NEXT\\resources\\runtime\\x64\\primary-runtime\\dependencies\\node\\bin\\node.exe',
+    path: join(process.env.LOCALAPPDATA || '', 'Programs', 'DSH NEXT', 'resources', 'runtime', 'x64', 'primary-runtime', 'dependencies', 'node', 'bin', 'node.exe'),
     source: 'dsh-next-runtime',
   },
   { path: 'C:\\Program Files\\nodejs\\node.exe', source: 'system-nodejs' },
@@ -336,6 +351,69 @@ if (existsSync(dataTemplate) && dirStats(dataTemplate).files > 0) {
   cpSync(dataTemplate, join(payload, 'data_template'), { recursive: true });
 }
 
+// Unity 星云渲染器（可选组件，默认内嵌 WebGL 构建）：存在产物时整目录打进 payload → 安装目录 unity/FCANebulaWebGL。
+// 桌面应用按 <InstallDir>\unity\FCANebulaWebGL\index.html 查找并由主进程本地静态服务 + atlas iframe 内嵌；
+// 缺失时自动回退 WebGL 星云（功能不缺失）。旧版 standalone exe（unity/FCANebula）仅在 --include-standalone-unity 时附带。
+const unityWebglSrc = join(PROJECT_ROOT, 'artifacts', 'unity', 'FCANebulaWebGL');
+const unityWebglIndex = join(unityWebglSrc, 'index.html');
+const unityIncluded = isFile(unityWebglIndex);
+let unityStats = { files: 0, bytes: 0 };
+if (unityIncluded) {
+  log('copying Unity WebGL renderer -> unity/FCANebulaWebGL ...');
+  cpSync(unityWebglSrc, join(payload, 'unity', 'FCANebulaWebGL'), {
+    recursive: true,
+    filter: (source) => {
+      const name = source.replace(/\\/g, '/');
+      if (name.includes('/.git/')) return false;
+      return true;
+    },
+  });
+  unityStats = { ...dirStats(join(payload, 'unity', 'FCANebulaWebGL')), index: 'unity/FCANebulaWebGL/index.html' };
+  log(`unity webgl payload: ${unityStats.files} files, ${(unityStats.bytes / 1048576).toFixed(1)} MiB`);
+} else {
+  warn('artifacts/unity/FCANebulaWebGL/index.html missing: installer will NOT include Unity WebGL renderer (desktop will fall back to WebGL)');
+}
+
+// 旧版 standalone Unity（独立窗口）——默认不打包（Lead 新要求内嵌 WebGL），仅开发/回退构建可显式开启
+const includeStandaloneUnity = options.has('--include-standalone-unity');
+const unityStandaloneSrc = join(PROJECT_ROOT, 'artifacts', 'unity', 'FCANebula');
+const unityStandaloneIncluded = includeStandaloneUnity && isFile(join(unityStandaloneSrc, 'FCANebula.exe'));
+let unityStandaloneStats = { files: 0, bytes: 0 };
+if (unityStandaloneIncluded) {
+  log('copying legacy Unity standalone renderer -> unity/FCANebula (--include-standalone-unity) ...');
+  cpSync(unityStandaloneSrc, join(payload, 'unity', 'FCANebula'), { recursive: true });
+  unityStandaloneStats = dirStats(join(payload, 'unity', 'FCANebula'));
+  log(`unity standalone payload: ${unityStandaloneStats.files} files, ${(unityStandaloneStats.bytes / 1048576).toFixed(1)} MiB`);
+} else if (includeStandaloneUnity) {
+  warn('--include-standalone-unity 已指定，但 artifacts/unity/FCANebula/FCANebula.exe 不存在，已跳过');
+}
+
+// DSH 插件安装包（可选组件，v0.2.0 起随安装包附带，便于在 DSH profile 离线安装）：
+// 从 artifacts/plugin/ 取与 dsh_plugin/package.json 版本匹配的 tgz；同时附带 dsh_plugin/README.md。
+const pluginPkg = readJsonFile(join(PROJECT_ROOT, 'dsh_plugin', 'package.json'));
+const pluginVersion = String(pluginPkg.version || 'unknown');
+const pluginTgzName = `dsh-plugin-fca-memory-${pluginVersion}.tgz`;
+const pluginTgzSrc = join(PROJECT_ROOT, 'artifacts', 'plugin', pluginTgzName);
+const pluginIncluded = isFile(pluginTgzSrc);
+let pluginStats = { files: 0, bytes: 0, version: pluginVersion, tgz: pluginTgzName, sha256: null };
+if (pluginIncluded) {
+  log(`copying DSH plugin package -> dsh_plugin/${pluginTgzName} ...`);
+  ensureDir(join(payload, 'dsh_plugin'));
+  cpSync(pluginTgzSrc, join(payload, 'dsh_plugin', pluginTgzName));
+  const pluginReadme = join(PROJECT_ROOT, 'dsh_plugin', 'README.md');
+  if (isFile(pluginReadme)) cpSync(pluginReadme, join(payload, 'dsh_plugin', 'README.md'));
+  pluginStats = {
+    files: dirStats(join(payload, 'dsh_plugin')).files,
+    bytes: statSync(pluginTgzSrc).size,
+    version: pluginVersion,
+    tgz: pluginTgzName,
+    sha256: createHash('sha256').update(readFileSync(pluginTgzSrc)).digest('hex'),
+  };
+  log(`dsh plugin payload: ${pluginTgzName} (${pluginStats.bytes} B, sha256 ${pluginStats.sha256})`);
+} else {
+  warn(`missing DSH plugin package: ${pluginTgzSrc} (installer will NOT include dsh_plugin tgz; build with: node scripts/pack-plugin.js)`);
+}
+
 // 版本标记（安装目录 BUILD_INFO.json，同时写入安装报告与构建证据）
 const buildInfo = {
   product: 'FCA Memory Atlas',
@@ -354,6 +432,32 @@ const buildInfo = {
     runtime_src: 'runtime/src',
     node: 'node/node.exe',
     docs: 'docs/ (also resources/docs/)',
+    unity: unityIncluded ? 'unity/FCANebulaWebGL/index.html (embedded Unity WebGL nebula renderer)' : null,
+  },
+  optional_components: {
+    unity_nebula_webgl: {
+      included: unityIncluded,
+      path: unityIncluded ? 'unity/FCANebulaWebGL' : null,
+      entry: unityIncluded ? 'unity/FCANebulaWebGL/index.html' : null,
+      size_mb: unityIncluded ? Number((unityStats.bytes / 1048576).toFixed(1)) : 0,
+      fallback: unityIncluded ? null : 'WebGL nebula (built-in renderer, no feature loss)',
+      note: 'Unity WebGL build for the nebula view, served by the desktop embedded static server and shown in an atlas iframe; desktop auto-falls back to WebGL when absent or on load failure.',
+    },
+    unity_nebula_standalone: {
+      included: unityStandaloneIncluded,
+      path: unityStandaloneIncluded ? 'unity/FCANebula' : null,
+      size_mb: unityStandaloneIncluded ? Number((unityStandaloneStats.bytes / 1048576).toFixed(1)) : 0,
+      note: 'Legacy standalone Unity renderer (separate window, dev-only fallback path). Not shipped by default.',
+    },
+    dsh_plugin: {
+      included: pluginIncluded,
+      version: pluginVersion,
+      tgz: pluginIncluded ? `dsh_plugin/${pluginTgzName}` : null,
+      sha256: pluginStats.sha256,
+      size_bytes: pluginStats.bytes,
+      readme: pluginIncluded ? 'dsh_plugin/README.md' : null,
+      note: 'DSH Cordis plugin bundle package (npm pack tgz) bundled for offline install into a DSH profile; see dsh_plugin/README.md.',
+    },
   },
   defaults: {
     install_dir: '%LOCALAPPDATA%\\Programs\\FCA Memory Atlas',
@@ -377,7 +481,7 @@ writeFileSync(join(payload, 'BUILD_INFO.json'), `${JSON.stringify(buildInfo, nul
 // stamp desktop package version
 const appPackagePath = join(appDir, 'package.json');
 if (existsSync(appPackagePath)) {
-  const pkg = JSON.parse(readFileSync(appPackagePath, 'utf8'));
+  const pkg = readJsonFile(appPackagePath);
   pkg.version = VERSION;
   pkg.description = 'FCA Memory Atlas — local cognitive memory desktop application';
   pkg.author = 'FCA Project';
@@ -403,12 +507,21 @@ buildInfo.payload = {
   desktop_files: appStats.files,
   runtime_files: runtimeStats.files,
   docs_files: docsStats.files,
+  unity_files: unityStats.files || 0,
+  unity_bytes: unityStats.bytes || 0,
+  dsh_plugin_files: pluginStats.files || 0,
+  dsh_plugin_bytes: pluginStats.bytes || 0,
 };
 buildInfo.checks = {
   critical_files: criticalChecks,
   desktop_renderer_views_present: isFile(join(appDir, 'renderer', 'views', 'atlas.js')),
   desktop_renderer_styles_present: isFile(join(appDir, 'renderer', 'styles', 'tokens.css')),
   desktop_nebula_present: isFile(join(appDir, 'renderer', 'nebula', 'index.js')),
+  desktop_unity_viewer_module_present: isFile(join(appDir, 'main', 'unity-viewer.js')),
+  desktop_unity_embed_module_present: isFile(join(appDir, 'main', 'unity-embed.js')),
+  unity_renderer_present: isFile(join(payload, 'unity', 'FCANebulaWebGL', 'index.html')),
+  unity_standalone_present: isFile(join(payload, 'unity', 'FCANebula', 'FCANebula.exe')),
+  dsh_plugin_package_present: pluginIncluded && isFile(join(payload, 'dsh_plugin', pluginTgzName)),
   runtime_llm_present: isFile(join(payload, 'runtime', 'src', 'api', 'routes', 'llm.js')),
   runtime_seed_present: isFile(join(payload, 'runtime', 'src', 'seed', 'demo.js')),
 };
@@ -423,8 +536,17 @@ if (missingCritical.length) {
 }
 log(
   `payload: ${payloadStatsFinal.files} files, ${(payloadStatsFinal.bytes / 1048576).toFixed(1)} MiB ` +
-    `(desktop ${appStats.files} files, runtime ${runtimeStats.files} files, docs ${docsStats.files} files)`,
+    `(desktop ${appStats.files} files, runtime ${runtimeStats.files} files, docs ${docsStats.files} files` +
+    `${unityStats.files ? `, unity ${unityStats.files} files / ${(unityStats.bytes / 1048576).toFixed(1)} MiB` : ', unity not included'}` +
+    `${pluginIncluded ? `, dsh_plugin ${pluginStats.files} files / ${(pluginStats.bytes / 1024).toFixed(0)} KiB` : ', dsh_plugin not included'})`,
 );
+
+if (PAYLOAD_ONLY) {
+  log(`--payload-only: payload staged at ${payload}`);
+  log(`unity renderer included: ${unityIncluded}${unityIncluded ? ` (${unityStats.files} files, ${(unityStats.bytes / 1048576).toFixed(1)} MiB)` : ''}`);
+  log('--payload-only: skipping NSIS compile');
+  process.exit(0);
+}
 
 // ---------------------------------------------------------------- compile
 ensureDir(output);

@@ -1,8 +1,8 @@
-﻿{
+{
   "name": "dsh-plugin-fca-memory",
-  "version": "0.1.4",
+  "version": "0.2.1",
   "private": true,
-  "description": "FCA Memory Atlas bridge: connects DeepSeek Harness sessions to a local FCA cognitive runtime, exposes memory tools and automatically stores conversation memories.",
+  "description": "FCA Memory Atlas bridge: connects DeepSeek Harness sessions to a local FCA cognitive runtime, exposes memory tools, automatically stores conversation memories, attributes them to the DSH workspace (nebula spiral arm) and aggregates one Agent 思考节点 memory per turn (reasoning + tool calls/results + conclusion).",
   "keywords": [
     "dsh",
     "dsh-plugin",
@@ -35,5 +35,3 @@
     "fcaRuntime": ">=0.1.0 <0.2.0"
   }
 }
-
-

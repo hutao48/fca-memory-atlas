@@ -2,9 +2,14 @@
  * FCA Memory Atlas — 星云画布视图（views/atlas.js）
  *
  * 数据：GET /api/v1/graph（真实 Runtime 数据；dev fixture 仅开发期兜底并明确标注）
- * 渲染：desktop/renderer/nebula/index.js 的 createNebula（冻结接口，见 PUBLIC_INTERFACE_FREEZE §5）
+ * 渲染：
+ *  - 默认 nebulaEngine=unity：星云由 Unity standalone 独立窗口渲染（desktop/main/unity-viewer.js 拉起），
+ *    本视图显示 “Unity 星云” 状态卡（打开/关闭/运行状态/失败信息）+ 图例/图层/映射说明；
+ *  - Unity exe 缺失、启动失败或被关闭时自动回退 WebGL 星云（renderer/nebula/index.js），
+ *    回退路径使用同一份真实 Runtime 数据，不阻塞其它功能；
+ *  - 设置项 nebulaEngine（unity|webgl）持久化在 desktop settings，默认 unity。
  * 交互：节点选择 → 详情面板；拖拽 → POST /layout/nodes；自动布局/恢复布局；筛选/图例/图层/画质；
- *       聚类星域模式；映射说明；缩放控制。
+ *       聚类星域模式；映射说明；缩放控制（Unity 模式下由 Unity 窗口自身交互）。
  */
 
 import { icon } from '../ui/icons.js';
@@ -22,6 +27,10 @@ const CLUSTER_COLORS = {
 };
 
 const QUALITY_LEVELS = ['ultra', 'high', 'medium', 'low', 'off'];
+
+const UNITY_USER_CLOSED_KEY = 'fca.unity.userClosed';
+const UNITY_FALLBACK_KEY = 'fca.unity.fallbackReason';
+const UNITY_AUTO_OPENED_KEY = 'fca.unity.autoOpened';
 
 export function createView(ctx) {
   const { api, store, events, ui: kit, format, toast, commands, actions, log } = ctx;
@@ -41,8 +50,22 @@ export function createView(ctx) {
   const unsubs = [];
   const dom = {};
 
+  // 星云引擎（unity = Unity WebGL 内嵌 iframe；webgl = 内置 WebGL2 回退）
+  let engine = 'webgl'; // 当前实际渲染引擎
+  let unityStatus = null; // 主进程 unity-embed 状态快照
+  let unityFrameUrl = null; // 含 token，仅保存在闭包，不写日志/全局状态
+  let unityBusy = false;
+  let unitySubscribed = false;
+  let unityFallbackActive = false;
+  let unityFrameLoaded = false;
+  let unityAssetsSeen = false;
+  let unityMessageSeen = false;
+  let unityStartAt = 0;
+  let unityPollTimer = null;
+  let toastShownSample = false;
+
   // ------------------------------------------------------------- lifecycle
-  function mount(container) {
+  async function mount(container) {
     root = kit.el('div', { class: 'view-atlas' });
     canvasHost = kit.el('div', { class: 'atlas-canvas', 'data-nebula-host': '1' });
     root.appendChild(canvasHost);
@@ -55,7 +78,13 @@ export function createView(ctx) {
 
     subscribeStore();
     subscribeEvents();
-    initNebula();
+    subscribeUnityEvents();
+    // 先向主进程查询 Unity 渲染器状态（exe 是否存在/是否在运行），再决定默认引擎：
+    // 设置 nebulaEngine=unity 且 exe 可用 → Unity；否则 WebGL 回退（并在视图中明确提示）。
+    await refreshUnityStatus();
+    // 本次窗口会话内曾经回退过（Unity 被关闭/崩溃）且当前没有运行中的 Unity → 保持 WebGL
+    unityFallbackActive = Boolean(storedReason(UNITY_FALLBACK_KEY)) && !(unityStatus && unityStatus.running);
+    await applyEngine({ force: true, reason: 'mount' });
     applyGraphFromStore();
     // 初始数据可能在 mount 前已加载
     if (store.getState().graph.data) applyGraph();
@@ -72,19 +101,8 @@ export function createView(ctx) {
         /* ignore */
       }
     }
-    if (statsTimer) {
-      clearInterval(statsTimer);
-      statsTimer = null;
-    }
-    if (instance) {
-      try {
-        instance.destroy();
-      } catch {
-        /* ignore */
-      }
-      instance = null;
-      if (window.__FCA_NEBULA__ === instance) window.__FCA_NEBULA__ = null;
-    }
+    destroyNebula();
+    stopUnityPolling();
     window.__FCA_NEBULA__ = null;
     window.__FCA_NEBULA_STATS__ = null;
     if (hoverLabelEl) {
@@ -97,6 +115,11 @@ export function createView(ctx) {
 
   function activate() {
     updateHud();
+    updateEngineUi();
+    // 视图重新激活时同步一次 Unity 运行状态（窗口可能在其它视图期间被关闭/崩溃）
+    refreshUnityStatus()
+      .then(() => applyEngine({ reason: 'activate' }))
+      .catch(() => {});
   }
 
   function deactivate() {
@@ -150,6 +173,23 @@ export function createView(ctx) {
       focusNode(payload.id, payload.depth || 1);
       return true;
     }
+    if (command === 'view:open-unity' || command === 'view:reload-unity') {
+      if (command === 'view:reload-unity') reloadUnity();
+      else startUnity();
+      return true;
+    }
+    if (command === 'view:close-unity') {
+      stopUnity({ reason: 'menu' });
+      return true;
+    }
+    if (command === 'view:toggle-unity') {
+      switchEngine(engine === 'unity' ? 'webgl' : 'unity');
+      return true;
+    }
+    if (command === 'view:unity-logs') {
+      showUnityLogs();
+      return true;
+    }
     return false;
   }
 
@@ -161,6 +201,8 @@ export function createView(ctx) {
     root.appendChild(topLeft);
 
     // 右上：缩放/布局/图层工具条
+    dom.engineBtn = kit.button({ label: 'WebGL', icon: 'grid', variant: 'ghost', size: 'sm', title: '星云渲染引擎（Unity / WebGL）', onClick: (event) => openEngineMenu(event.currentTarget) });
+    dom.engineBtn.classList.add('atlas-engine-btn');
     dom.zoomIn = kit.iconButton({ icon: 'zoom-in', label: '放大', size: 'sm', onClick: () => zoomBy(1.22) });
     dom.zoomOut = kit.iconButton({ icon: 'zoom-out', label: '缩小', size: 'sm', onClick: () => zoomBy(1 / 1.22) });
     dom.fitBtn = kit.iconButton({ icon: 'fit', label: '适应屏幕 (F)', size: 'sm', onClick: () => fitToContent() });
@@ -169,6 +211,8 @@ export function createView(ctx) {
     dom.layersBtn = kit.iconButton({ icon: 'layers', label: '图层控制', size: 'sm', onClick: (event) => openLayersMenu(event.currentTarget) });
     dom.legendBtn = kit.iconButton({ icon: 'legend', label: '图例与映射 (L)', size: 'sm', onClick: () => toggleLegend() });
     const toolbar = kit.el('div', { class: 'atlas-toolbar' }, [
+      dom.engineBtn,
+      kit.el('span', { class: 'atlas-toolbar__divider' }),
       dom.zoomIn,
       dom.zoomOut,
       dom.fitBtn,
@@ -180,7 +224,8 @@ export function createView(ctx) {
       dom.legendBtn,
     ]);
     dom.statePill = kit.el('span', { class: 'atlas-state-pill' }, [kit.statusDot('stopped'), kit.el('span', { text: '未连接' })]);
-    root.appendChild(kit.el('div', { class: 'atlas-overlay atlas-overlay--top-right' }, [toolbar, dom.statePill]));
+    dom.enginePill = kit.el('span', { class: 'atlas-state-pill atlas-engine-pill', title: '当前星云渲染引擎' }, [kit.statusDot('stopped'), kit.el('span', { text: 'WebGL' })]);
+    root.appendChild(kit.el('div', { class: 'atlas-overlay atlas-overlay--top-right' }, [toolbar, dom.statePill, dom.enginePill]));
 
     // 底部中间：聚类选择条（聚类模式）
     dom.clusterBar = kit.el('div', { class: 'atlas-cluster-bar', hidden: true });
@@ -197,6 +242,22 @@ export function createView(ctx) {
     // dev fixture 标注
     dom.devBanner = kit.el('div', { class: 'atlas-dev-banner', hidden: true }, [icon('alert', { size: 12 }), kit.el('span', { text: '开发夹具数据（DEV-ONLY，非真实 Runtime 数据）' })]);
     root.appendChild(dom.devBanner);
+
+    // Unity 回退提示条（Unity 不可用/被关闭/崩溃时显示，明确告知已回退 WebGL）
+    dom.unityBanner = kit.el('div', { class: 'atlas-unity-banner', hidden: true });
+    root.appendChild(dom.unityBanner);
+
+    // Unity 星云（WebGL 内嵌）：iframe 容器（由主进程本地静态服务提供）
+    dom.unityLayer = kit.el('div', { class: 'atlas-unity-layer', hidden: true });
+    dom.unityFrame = kit.el('iframe', { class: 'atlas-unity-frame', title: 'Unity 星云（WebGL 内嵌）' });
+    dom.unityFrame.setAttribute('allowfullscreen', 'true');
+    // 说明：Unity 2022 WebGL 在 Chromium sandboxed iframe 下无法可靠初始化（wasm/索引缓存受阻），
+    // 因此不设置 sandbox 属性；iframe 为**跨源**（http://127.0.0.1:<随机端口> vs file:// shell），
+    // 无法访问 Electron shell 的 DOM/localStorage，只能通过 postMessage 通信；静态服务只读且仅本机回环。
+    // 另见：父页面 CSP 仅额外放行 frame-src http://127.0.0.1:*，脚本仍来自受信本地静态服务。
+    dom.unityOverlay = kit.el('div', { class: 'atlas-unity-overlay', hidden: true });
+    dom.unityLayer.append(dom.unityFrame, dom.unityOverlay);
+    root.appendChild(dom.unityLayer);
 
     // 状态卡（加载/空/错误/离线）
     dom.statusLayer = kit.el('div', { class: 'atlas-status', hidden: true });
@@ -244,6 +305,13 @@ export function createView(ctx) {
   function setStatusLayer(kind, payload = {}) {
     const layer = dom.statusLayer;
     if (!layer) return;
+    // Unity 模式下星云由独立窗口渲染：只保留“图谱加载错误”这类关键信息，
+    // 避免与 Unity 状态卡叠加；空库/离线/加载中等提示由 Unity 窗口自身 HUD 呈现。
+    if (engine === 'unity' && kind && kind !== 'error') {
+      layer.hidden = true;
+      layer.innerHTML = '';
+      return;
+    }
     if (!kind) {
       layer.hidden = true;
       layer.innerHTML = '';
@@ -313,6 +381,679 @@ export function createView(ctx) {
     }
     layer.appendChild(card);
   }
+
+  // ------------------------------------------------- Unity WebGL 内嵌引擎
+  // 设计（Lead 2026-11-12 新要求）：
+  //  - 默认 nebulaEngine=unity：Unity WebGL 构建（artifacts/unity/FCANebulaWebGL）由主进程本地静态服务
+  //    （127.0.0.1 随机端口）提供，atlas 视图用 iframe 内嵌渲染；不再启动独立 Unity 窗口。
+  //  - iframe URL 由主进程生成：?runtime-url=<runtime>&token=<bearer>&quality=<q>&poll=2
+  //    token 只在本地 URL 中（随机端口、不落日志、不写入 window 全局状态）。
+  //  - Unity 侧通过 postMessage({type:'fca-unity-ready'}) 通知“已连上真实数据”；未提供时用
+  //    “静态资源加载完成 + 等待”启发式判定并撤掉加载覆盖层。
+  //  - WebGL 构建缺失/服务失败/加载超时 → 自动回退内置 WebGL2 星云（同一份真实数据），顶部提示条说明。
+
+  const UNITY_READY_MESSAGE = 'fca-unity-ready';
+  const UNITY_STATUS_MESSAGE = 'fca-unity-status';
+  const UNITY_LOAD_TIMEOUT_MS = 60000;
+  const UNITY_READY_GRACE_MS = 4000;
+
+  function unityBridge() {
+    return window.fca && window.fca.isElectron && window.fca.unity ? window.fca.unity : null;
+  }
+
+  function requestedEngine() {
+    const settings = store.getState().settings || {};
+    return settings.nebulaEngine === 'webgl' ? 'webgl' : 'unity';
+  }
+
+  function unityUsable() {
+    return Boolean(unityStatus && unityStatus.available);
+  }
+
+  function storedReason(key) {
+    try {
+      return sessionStorage.getItem(key);
+    } catch {
+      return null;
+    }
+  }
+
+  function setStored(key, value) {
+    try {
+      if (value === null || value === undefined) sessionStorage.removeItem(key);
+      else sessionStorage.setItem(key, String(value));
+    } catch {
+      /* ignore */
+    }
+  }
+
+  /** 去掉 URL 中的 token，仅用于日志/全局状态/截图，不用于 iframe src */
+  function sanitizeFrameUrl(url) {
+    if (!url) return null;
+    try {
+      const parsed = new URL(url);
+      if (parsed.searchParams.has('token')) parsed.searchParams.set('token', '[redacted]');
+      return parsed.toString();
+    } catch {
+      return null;
+    }
+  }
+
+  function updateUnityGlobals() {
+    window.__FCA_NEBULA_ENGINE__ = engine;
+    window.__FCA_UNITY_STATUS__ = unityStatus
+      ? {
+          available: Boolean(unityStatus.available),
+          mode: unityStatus.mode || 'embedded-webgl',
+          state: unityStatus.state,
+          running: Boolean(unityStatus.running),
+          dir: unityStatus.dir || null,
+          source: unityStatus.source || null,
+          port: unityStatus.port || null,
+          quality: unityStatus.quality || null,
+          stats: unityStatus.stats || null,
+          frameUrl: sanitizeFrameUrl(unityStatus.frameUrl),
+          iframeReady: unityMessageSeen || (unityFrameLoaded && unityAssetsSeen),
+          lastError: unityStatus.lastError || null,
+        }
+      : null;
+  }
+
+  async function refreshUnityStatus() {
+    const bridge = unityBridge();
+    if (!bridge) {
+      unityStatus = {
+        available: false,
+        mode: 'embedded-webgl',
+        state: 'unavailable',
+        running: false,
+        searched: [],
+        message: '当前环境未提供 Unity 集成（需要 Electron 桌面版）',
+        logTail: [],
+      };
+      updateUnityGlobals();
+      return unityStatus;
+    }
+    try {
+      unityStatus = await bridge.getStatus();
+    } catch (error) {
+      unityStatus = {
+        available: false,
+        mode: 'embedded-webgl',
+        state: 'error',
+        running: false,
+        searched: [],
+        message: `读取 Unity 状态失败：${error.message}`,
+        logTail: [],
+      };
+    }
+    updateUnityGlobals();
+    return unityStatus;
+  }
+
+  function subscribeUnityEvents() {
+    if (unitySubscribed) return;
+    const bridge = unityBridge();
+    if (!bridge) return;
+    unitySubscribed = true;
+    unsubs.push(bridge.onStatus((status) => onUnityStatus(status, 'status')));
+    if (typeof bridge.onCrash === 'function') unsubs.push(bridge.onCrash((status) => onUnityStatus(status, 'crash')));
+    window.addEventListener('message', onUnityMessage);
+    unsubs.push(() => window.removeEventListener('message', onUnityMessage));
+  }
+
+  function onUnityMessage(event) {
+    if (disposed || !dom.unityFrame) return;
+    if (event.source !== dom.unityFrame.contentWindow) return;
+    const data = event.data;
+    if (!data || typeof data !== 'object' || typeof data.type !== 'string') return;
+    const payload = data.payload && typeof data.payload === 'object' ? data.payload : data;
+    if (data.type === UNITY_READY_MESSAGE) {
+      unityMessageSeen = true;
+      unityFrameLoaded = true;
+      const stats = {
+        ...(unityStatus && unityStatus.stats ? unityStatus.stats : {}),
+        assetsLoaded: true,
+      };
+      if (Number.isFinite(Number(payload.nodes))) stats.nodes = Number(payload.nodes);
+      if (Number.isFinite(Number(payload.edges))) stats.edges = Number(payload.edges);
+      if (Number.isFinite(Number(payload.arms))) stats.arms = Number(payload.arms);
+      if (payload.armSummary) stats.armSummary = String(payload.armSummary);
+      if (payload.layout) stats.layoutSignature = String(payload.layout);
+      if (payload.quality) stats.quality = String(payload.quality);
+      unityStatus = {
+        ...(unityStatus || {}),
+        stats,
+        connected: payload.connected !== false,
+        sample: Boolean(payload.sample),
+        runtimeUrl: payload.runtimeUrl || (unityStatus && unityStatus.runtimeUrl),
+      };
+      updateUnityGlobals();
+      renderUnityOverlay();
+      updateEngineUi();
+      updateHud();
+      log.info('Unity WebGL 已连接真实数据（postMessage fca-unity-ready）', {
+        connected: payload.connected !== false,
+        nodes: stats.nodes,
+        edges: stats.edges,
+        arms: stats.arms,
+        armSummary: stats.armSummary || null,
+        sample: Boolean(payload.sample),
+        runtimeUrl: payload.runtimeUrl || null,
+      });
+      if (payload.sample && !toastShownSample) {
+        toastShownSample = true;
+        toast('Unity 星云使用样例数据（非实时 Runtime）', { type: 'warn', duration: 5000 });
+      }
+    } else if (data.type === UNITY_STATUS_MESSAGE) {
+      // fca-unity-state：运行期状态/统计持续推送（connected/nodes/edges/arms/armSummary/quality/view）
+      const stats = { ...(unityStatus && unityStatus.stats ? unityStatus.stats : {}) };
+      if (Number.isFinite(Number(payload.nodes))) stats.nodes = Number(payload.nodes);
+      if (Number.isFinite(Number(payload.edges))) stats.edges = Number(payload.edges);
+      if (Number.isFinite(Number(payload.arms))) stats.arms = Number(payload.arms);
+      if (payload.armSummary) stats.armSummary = String(payload.armSummary);
+      if (payload.quality) stats.quality = String(payload.quality);
+      if (payload.layout) stats.layoutSignature = String(payload.layout);
+      unityStatus = {
+        ...(unityStatus || {}),
+        stats,
+        connected: payload.connected === true,
+        sample: Boolean(payload.sample),
+      };
+      updateUnityGlobals();
+      renderUnityOverlay();
+      updateEngineUi();
+      updateHud();
+    }
+  }
+
+  function onUnityStatus(status, source) {
+    if (!status || disposed) return;
+    unityStatus = status;
+    updateUnityGlobals();
+    updateEngineUi();
+    updateHud();
+    renderUnityOverlay();
+    renderUnityBanner();
+    if (engine !== 'unity') return;
+    if (!status.available) {
+      unityFallbackActive = true;
+      fallbackToWebgl('未找到 Unity WebGL 构建（index.html），已使用 WebGL 星云回退');
+      return;
+    }
+    if (status.state === 'error' && status.lastError) {
+      unityFallbackActive = true;
+      fallbackToWebgl(`Unity WebGL 启动失败：${status.lastError.message}（已回退 WebGL 星云）`);
+    }
+    void source;
+  }
+
+  function desiredEngine() {
+    if (requestedEngine() !== 'unity') return 'webgl';
+    if (!unityUsable()) return 'webgl';
+    if (unityFallbackActive) return 'webgl';
+    return 'unity';
+  }
+
+  function destroyNebula() {
+    if (statsTimer) {
+      clearInterval(statsTimer);
+      statsTimer = null;
+    }
+    if (instance) {
+      try {
+        instance.destroy();
+      } catch {
+        /* ignore */
+      }
+      instance = null;
+    }
+    window.__FCA_NEBULA__ = null;
+    window.__FCA_NEBULA_STATS__ = null;
+  }
+
+  async function applyEngine(options = {}) {
+    if (disposed || !root) return;
+    const force = Boolean(options && options.force);
+    const next = desiredEngine();
+    if (next === engine && !force) {
+      updateEngineUi();
+      renderUnityOverlay();
+      renderUnityBanner();
+      return;
+    }
+    const previous = engine;
+    engine = next;
+    updateUnityGlobals();
+    if (engine === 'unity') {
+      destroyNebula();
+      if (canvasHost) canvasHost.hidden = true;
+      if (dom.unityLayer) dom.unityLayer.hidden = false;
+      if (dom.unityBanner) dom.unityBanner.hidden = true;
+      setUnityOverlay('loading', '正在启动内嵌 Unity WebGL 服务…');
+      await ensureUnityEmbed();
+    } else {
+      if (dom.unityLayer) dom.unityLayer.hidden = true;
+      if (dom.unityFrame) dom.unityFrame.removeAttribute('src');
+      unityFrameLoaded = false;
+      unityAssetsSeen = false;
+      unityMessageSeen = false;
+      if (canvasHost) canvasHost.hidden = false;
+      renderUnityBanner();
+      stopUnityPolling();
+      if (!instance) {
+        await initNebula();
+        if (disposed) return;
+      }
+      if (store.getState().graph.data) applyGraph();
+    }
+    updateEngineUi();
+    updatePill();
+    updateHud();
+    renderLegend();
+    if (previous !== engine) {
+      log.info('星云渲染引擎切换', {
+        from: previous,
+        to: engine,
+        requested: requestedEngine(),
+        unityAvailable: unityUsable(),
+        unityState: unityStatus ? unityStatus.state : null,
+      });
+    }
+  }
+
+  async function ensureUnityEmbed() {
+    if (disposed) return;
+    if (!unityUsable()) {
+      unityFallbackActive = true;
+      await fallbackToWebgl(unityStatus && unityStatus.lastError ? unityStatus.lastError.message : '未找到 Unity WebGL 构建（index.html），已使用 WebGL 星云回退');
+      return;
+    }
+    const bridge = unityBridge();
+    if (!bridge) {
+      unityFallbackActive = true;
+      await fallbackToWebgl('当前环境不支持 Unity WebGL 内嵌（需要 Electron 桌面版），已使用 WebGL 星云回退');
+      return;
+    }
+    if (!unityFrameUrl) {
+      setUnityOverlay('loading', unityStatus.state === 'starting' ? '正在启动 Unity WebGL 服务…' : '正在启动内嵌 Unity WebGL 服务…');
+      try {
+        const result = await bridge.start();
+        if (!result || !result.ok) {
+          const message = result && result.error && result.error.message ? result.error.message : 'Unity WebGL 内嵌服务启动失败';
+          unityFallbackActive = true;
+          await fallbackToWebgl(`${message}（已回退 WebGL 星云）`);
+          return;
+        }
+        unityStatus = result.status || unityStatus;
+        unityFrameUrl = result.frameUrl || (result.status && result.status.frameUrl) || null;
+        updateUnityGlobals();
+      } catch (error) {
+        unityFallbackActive = true;
+        await fallbackToWebgl(`Unity WebGL 内嵌服务启动失败：${error.message}（已回退 WebGL 星云）`);
+        return;
+      }
+    }
+    if (!unityFrameUrl) {
+      unityFallbackActive = true;
+      await fallbackToWebgl('Unity WebGL iframe 地址不可用，已回退 WebGL 星云');
+      return;
+    }
+    if (!dom.unityFrame) return;
+    if (dom.unityFrame.getAttribute('data-frame-src') !== unityFrameUrl) {
+      dom.unityFrame.setAttribute('data-frame-src', unityFrameUrl);
+      unityFrameLoaded = false;
+      unityAssetsSeen = false;
+      unityMessageSeen = false;
+      unityStartAt = Date.now();
+      setUnityOverlay('loading', 'Unity WebGL 加载中…（首次加载需要初始化运行时）');
+      try {
+        dom.unityFrame.src = unityFrameUrl;
+      } catch (error) {
+        unityFallbackActive = true;
+        await fallbackToWebgl(`Unity WebGL iframe 加载失败：${error.message}（已回退 WebGL 星云）`);
+        return;
+      }
+      startUnityPolling();
+    }
+    renderUnityOverlay();
+  }
+
+  function startUnityPolling() {
+    stopUnityPolling();
+    unityPollTimer = setInterval(() => {
+      if (disposed || !dom.unityFrame) {
+        stopUnityPolling();
+        return;
+      }
+      const stats = (unityStatus && unityStatus.stats) || {};
+      if (stats.assetsLoaded) {
+        unityAssetsSeen = true;
+        if (!unityMessageSeen) {
+          setUnityOverlay('loading', 'Unity 资源已加载，正在连接本地 Runtime…');
+        }
+      }
+      const elapsed = Date.now() - (unityStartAt || Date.now());
+      if (unityMessageSeen) {
+        stopUnityPolling();
+        setUnityOverlay(null);
+        return;
+      }
+      // 启发式：资源已加载且已过宽限期 → 认为画面可用（部分构建未实现 postMessage）
+      if (unityAssetsSeen && elapsed > UNITY_READY_GRACE_MS) {
+        stopUnityPolling();
+        setUnityOverlay(null);
+        renderUnityOverlay();
+        return;
+      }
+      if (elapsed > UNITY_LOAD_TIMEOUT_MS) {
+        stopUnityPolling();
+        unityFallbackActive = true;
+        fallbackToWebgl('Unity WebGL 加载超时，已回退 WebGL 星云（可点击“重新加载 Unity”重试）');
+      }
+    }, 700);
+  }
+
+  function stopUnityPolling() {
+    if (unityPollTimer) {
+      clearInterval(unityPollTimer);
+      unityPollTimer = null;
+    }
+  }
+
+  async function fallbackToWebgl(reason) {
+    if (disposed) return;
+    unityFallbackActive = true;
+    if (reason) setStored(UNITY_FALLBACK_KEY, reason);
+    if (engine === 'webgl') {
+      renderUnityBanner();
+      updateEngineUi();
+      renderUnityOverlay();
+      return;
+    }
+    log.warn('Unity WebGL 内嵌不可用，回退 WebGL 星云', { reason: reason || '(unspecified)' });
+    await applyEngine({ force: true, reason: 'fallback' });
+    if (reason) toast(reason, { type: 'warn', duration: 7000 });
+  }
+
+  /** 用户显式关闭内嵌 Unity（停止服务 + 回退 WebGL，同时记住本次会话不再自动启动） */
+  async function stopUnity(options = {}) {
+    const bridge = unityBridge();
+    if (unityBusy) return { ok: false };
+    unityBusy = true;
+    renderUnityOverlay();
+    try {
+      if (bridge) await bridge.stop({ reason: (options && options.reason) || 'user' });
+      if (dom.unityFrame) dom.unityFrame.removeAttribute('src');
+      unityFrameUrl = null;
+      unityFrameLoaded = false;
+      unityAssetsSeen = false;
+      unityMessageSeen = false;
+      stopUnityPolling();
+      setStored(UNITY_USER_CLOSED_KEY, '1');
+      setStored(UNITY_FALLBACK_KEY, 'Unity WebGL 已关闭，已回退 WebGL 星云');
+      await fallbackToWebgl('Unity WebGL 已关闭，已回退 WebGL 星云');
+      return { ok: true };
+    } catch (error) {
+      toast(`关闭 Unity WebGL 失败：${error.message}`, { type: 'error', duration: 5000 });
+      return { ok: false, error };
+    } finally {
+      unityBusy = false;
+      updateEngineUi();
+      renderUnityOverlay();
+      updateHud();
+    }
+  }
+
+  /** 显式启动/重试 Unity WebGL 内嵌 */
+  async function startUnity(options = {}) {
+    const bridge = unityBridge();
+    if (!bridge) {
+      toast('当前环境不支持 Unity WebGL 内嵌（需要 Electron 桌面版）', { type: 'warn', duration: 5000 });
+      return { ok: false };
+    }
+    if (unityBusy) return { ok: false, busy: true };
+    unityBusy = true;
+    try {
+      setStored(UNITY_USER_CLOSED_KEY, null);
+      setStored(UNITY_FALLBACK_KEY, null);
+      unityFallbackActive = false;
+      await refreshUnityStatus();
+      if (!unityUsable()) {
+        toast('未找到 Unity WebGL 构建（index.html），已使用 WebGL 星云回退', { type: 'warn', duration: 7000 });
+        renderUnityBanner();
+        return { ok: false, error: { code: 'UNITY_WEBGL_NOT_FOUND' } };
+      }
+      await applyEngine({ force: true, reason: 'start' });
+      if (engine === 'unity' && !unityFrameUrl) await ensureUnityEmbed();
+      if (!options || !options.silent) toast('Unity WebGL 已内嵌到星云视图', { type: 'info', duration: 2500 });
+      return { ok: engine === 'unity', frameUrl: unityFrameUrl ? sanitizeFrameUrl(unityFrameUrl) : null };
+    } catch (error) {
+      toast(`启动 Unity WebGL 失败：${error.message}`, { type: 'error', duration: 6000 });
+      return { ok: false, error };
+    } finally {
+      unityBusy = false;
+      updateEngineUi();
+      renderUnityOverlay();
+      updateHud();
+    }
+  }
+
+  /** 重新加载 iframe（重试） */
+  async function reloadUnity() {
+    const bridge = unityBridge();
+    if (bridge) {
+      try {
+        await bridge.stop({ reason: 'reload' });
+      } catch {
+        /* ignore */
+      }
+    }
+    unityFrameUrl = null;
+    if (dom.unityFrame) dom.unityFrame.removeAttribute('src');
+    unityFrameLoaded = false;
+    unityAssetsSeen = false;
+    unityMessageSeen = false;
+    setStored(UNITY_FALLBACK_KEY, null);
+    unityFallbackActive = false;
+    await refreshUnityStatus();
+    await applyEngine({ force: true, reason: 'reload' });
+    if (engine === 'unity') await ensureUnityEmbed();
+  }
+
+  async function switchEngine(next) {
+    if (next !== 'unity' && next !== 'webgl') return;
+    if (next === 'unity') {
+      await refreshUnityStatus();
+      if (!unityUsable()) {
+        toast('未找到 Unity WebGL 构建（index.html），已使用 WebGL 星云回退', { type: 'warn', duration: 7000 });
+        renderUnityBanner();
+        return;
+      }
+      setStored(UNITY_USER_CLOSED_KEY, null);
+      setStored(UNITY_FALLBACK_KEY, null);
+      unityFallbackActive = false;
+    }
+    const save = actions && typeof actions.setNebulaEngine === 'function' ? actions.setNebulaEngine : null;
+    if (save) {
+      try {
+        const saved = await save(next);
+        if (saved === false) return;
+      } catch (error) {
+        toast(`切换渲染引擎失败：${error.message}`, { type: 'error' });
+        return;
+      }
+    }
+    if (next === 'webgl') {
+      await stopUnity({ reason: 'switch-webgl' });
+    } else {
+      await applyEngine({ force: true, reason: 'switch-unity' });
+    }
+  }
+
+  function setUnityOverlay(kind, text) {
+    if (!dom.unityOverlay) return;
+    if (!kind) {
+      dom.unityOverlay.hidden = true;
+      dom.unityOverlay.innerHTML = '';
+      return;
+    }
+    dom.unityOverlay.hidden = false;
+    dom.unityOverlay.innerHTML = '';
+    const card = kit.el('div', { class: 'atlas-unity-overlay__card' }, [
+      kind === 'loading' ? kit.spinner({ label: '加载中' }) : null,
+      kit.el('div', { class: 'atlas-unity-overlay__title', text: kind === 'error' ? 'Unity WebGL 加载失败' : 'Unity 星云' }),
+      kit.el('div', { class: 'atlas-unity-overlay__desc', text: text || (kind === 'error' ? '请查看日志或切换回 WebGL 星云。' : '正在加载 Unity WebGL…') }),
+    ].filter(Boolean));
+    dom.unityOverlay.appendChild(card);
+  }
+
+  function renderUnityOverlay() {
+    if (!dom.unityLayer || !dom.unityOverlay) return;
+    if (engine !== 'unity') {
+      dom.unityLayer.hidden = true;
+      dom.unityOverlay.hidden = true;
+      return;
+    }
+    dom.unityLayer.hidden = false;
+    const lastError = unityStatus && unityStatus.lastError;
+    if (lastError) {
+      dom.unityOverlay.hidden = false;
+      dom.unityOverlay.innerHTML = '';
+      const card = kit.el('div', { class: 'atlas-unity-overlay__card atlas-unity-overlay__card--error' }, [
+        kit.el('div', { class: 'atlas-unity-overlay__title', text: 'Unity WebGL 出错' }),
+        kit.el('div', { class: 'atlas-unity-overlay__desc', text: lastError.message }),
+        kit.el('div', { class: 'atlas-unity-overlay__actions' }, [
+          kit.button({ label: '重新加载 Unity', icon: 'refresh', variant: 'primary', onClick: () => reloadUnity() }),
+          kit.button({ label: '使用 WebGL 星云', icon: 'grid', variant: 'secondary', onClick: () => switchEngine('webgl') }),
+          kit.button({ label: '日志', icon: 'file', variant: 'ghost', onClick: () => showUnityLogs() }),
+        ]),
+      ]);
+      dom.unityOverlay.appendChild(card);
+      return;
+    }
+    if (unityMessageSeen || (unityFrameLoaded && unityAssetsSeen && Date.now() - (unityStartAt || 0) > UNITY_READY_GRACE_MS)) {
+      dom.unityOverlay.hidden = true;
+      dom.unityOverlay.innerHTML = '';
+      return;
+    }
+    if (dom.unityOverlay.hidden) setUnityOverlay('loading', 'Unity WebGL 加载中…');
+  }
+
+  async function showUnityLogs() {
+    const bridge = unityBridge();
+    const contentEl = kit.el('pre', { class: 'atlas-unity-card__paths', text: '读取中…' });
+    kit.dialog({
+      title: 'Unity WebGL 内嵌服务日志',
+      subtitle: '本地静态文件服务 / Unity 资源请求记录 / 错误（token 已脱敏）',
+      content: contentEl,
+      width: 760,
+      actions: [{ label: '关闭', variant: 'secondary' }],
+    });
+    try {
+      const tail = bridge ? await bridge.getLogTail(120) : { entries: [] };
+      const lines = [];
+      for (const entry of tail.entries || []) lines.push(`[${entry.at}] ${entry.line}`);
+      if (unityStatus && unityStatus.searched) {
+        lines.push('', '--- exe/构建目录搜索 ---', ...unityStatus.searched.map((item) => `${item.exists ? '✓' : '✗'} ${item.path}（${item.source}）`));
+      }
+      contentEl.textContent = lines.join('\n') || '（暂无日志）';
+    } catch (error) {
+      contentEl.textContent = `读取 Unity 日志失败：${error.message}`;
+    }
+  }
+
+  function statusDotState(tone) {
+    return tone === 'error' ? 'error' : tone === 'running' ? 'running' : tone === 'starting' ? 'starting' : 'stopped';
+  }
+
+  function renderUnityBanner() {
+    if (!dom.unityBanner) return;
+    const requested = requestedEngine();
+    if (requested !== 'unity' || engine === 'unity') {
+      dom.unityBanner.hidden = true;
+      dom.unityBanner.innerHTML = '';
+      return;
+    }
+    let message = null;
+    if (unityStatus && !unityStatus.available) {
+      message = '未找到 Unity WebGL 构建（index.html），已使用 WebGL 回退';
+    } else {
+      message = storedReason(UNITY_FALLBACK_KEY);
+    }
+    if (!message) {
+      dom.unityBanner.hidden = true;
+      dom.unityBanner.innerHTML = '';
+      return;
+    }
+    dom.unityBanner.hidden = false;
+    dom.unityBanner.innerHTML = '';
+    dom.unityBanner.appendChild(icon('alert', { size: 13 }));
+    dom.unityBanner.appendChild(kit.el('span', { class: 'atlas-unity-banner__text', text: message }));
+    dom.unityBanner.append(
+      kit.button({ label: '重试 Unity', icon: 'play', variant: 'ghost', size: 'sm', onClick: () => startUnity() }),
+      kit.button({ label: '日志', icon: 'file', variant: 'ghost', size: 'sm', onClick: () => showUnityLogs() }),
+      kit.iconButton({
+        icon: 'close',
+        label: '关闭提示',
+        size: 'xs',
+        onClick: () => {
+          setStored(UNITY_FALLBACK_KEY, null);
+          renderUnityBanner();
+        },
+      }),
+    );
+  }
+
+  function updateEngineUi() {
+    const label = engine === 'unity' ? 'Unity' : 'WebGL';
+    if (dom.engineBtn) {
+      const labelEl = dom.engineBtn.querySelector('.btn__label');
+      if (labelEl) labelEl.textContent = label;
+      dom.engineBtn.title = engine === 'unity'
+        ? '当前：Unity WebGL 内嵌渲染 · 点击切换 / 查看状态'
+        : `当前：WebGL 星云${requestedEngine() === 'unity' && !unityUsable() ? '（UnWebGL 构建不可用，自动回退）' : ''} · 点击切换`;
+      dom.engineBtn.classList.toggle('is-unity', engine === 'unity');
+    }
+    if (dom.enginePill) {
+      dom.enginePill.innerHTML = '';
+      const ready = engine === 'unity' && (unityMessageSeen || (unityFrameLoaded && unityAssetsSeen));
+      const tone = engine === 'unity' ? (ready ? 'running' : 'starting') : 'stopped';
+      dom.enginePill.append(
+        kit.statusDot(statusDotState(tone)),
+        kit.el('span', { text: engine === 'unity' ? `Unity 内嵌${ready ? ' · 实时' : ' · 加载中'}` : 'WebGL 星云' }),
+      );
+    }
+    const webglOnly = [dom.zoomIn, dom.zoomOut, dom.fitBtn, dom.autoLayoutBtn, dom.resetLayoutBtn];
+    for (const btn of webglOnly) {
+      if (!btn) continue;
+      btn.disabled = engine === 'unity';
+      btn.title = engine === 'unity' ? 'Unity 星云内直接交互（拖拽/滚轮/点选由 Unity 处理）' : btn.title || '';
+    }
+    updateUnityGlobals();
+  }
+
+  function openEngineMenu(anchor) {
+    kit.dropdown({
+      anchor,
+      align: 'right',
+      items: [
+        { header: '星云渲染引擎' },
+        {
+          label: `${requestedEngine() === 'unity' ? '✓ ' : ''}Unity 星云（内嵌 WebGL）${unityUsable() ? '' : ' · 未找到构建'}`,
+          icon: 'sparkles',
+          onClick: () => switchEngine('unity'),
+        },
+        { label: `${requestedEngine() === 'webgl' ? '✓ ' : ''}WebGL 星云（内置回退）`, icon: 'grid', onClick: () => switchEngine('webgl') },
+        { separator: true },
+        { label: '重新加载 Unity WebGL', icon: 'refresh', onClick: () => reloadUnity() },
+        { label: '停止 Unity（回退 WebGL）', icon: 'stop', onClick: () => stopUnity({ reason: 'menu' }) },
+        { label: '查看 Unity 内嵌日志…', icon: 'file', onClick: () => showUnityLogs() },
+        { label: `服务端口：${unityStatus && unityStatus.port ? unityStatus.port : '未启动'}（127.0.0.1）`, icon: 'info', disabled: true },
+      ],
+    });
+  }
+
 
   // ------------------------------------------------------------- nebula
   /**
@@ -961,7 +1702,15 @@ export function createView(ctx) {
     dom.hud.appendChild(kit.el('span', { class: 'atlas-hud__item' }, [kit.el('span', { text: 'CLUSTERS' }), kit.el('span', { class: 'atlas-hud__value', text: `${clusterCount}` })]));
     dom.hud.appendChild(kit.el('span', { class: 'atlas-hud__item' }, [kit.el('span', { text: 'LAYOUT' }), kit.el('span', { class: 'atlas-hud__value', text: `#${state.graph.layoutVersion || 0}` })]));
     dom.hud.appendChild(kit.el('span', { class: 'atlas-hud__item' }, [kit.el('span', { text: 'QUALITY' }), kit.el('span', { class: 'atlas-hud__value', text: state.ui.quality })]));
-    if (usingDevStub) dom.hud.appendChild(kit.el('span', { class: 'atlas-hud__item' }, [kit.el('span', { text: 'RENDERER' }), kit.el('span', { class: 'atlas-hud__value', text: 'dev-stub' })]));
+    dom.hud.appendChild(kit.el('span', { class: 'atlas-hud__item' }, [kit.el('span', { text: 'RENDERER' }), kit.el('span', { class: 'atlas-hud__value', text: engine === 'unity' ? 'Unity' : (usingDevStub ? 'dev-stub' : 'WebGL2') })]));
+    if (engine === 'unity') {
+      const us = (unityStatus && unityStatus.stats) || {};
+      const ready = unityMessageSeen || (unityFrameLoaded && unityAssetsSeen);
+      dom.hud.appendChild(kit.el('span', { class: 'atlas-hud__item' }, [
+        kit.el('span', { text: 'UNITY' }),
+        kit.el('span', { class: 'atlas-hud__value', text: ready ? `${us.nodes != null ? us.nodes : '—'}N/${us.arms != null ? us.arms : '—'}A` : '加载中' }),
+      ]));
+    }
   }
 
   function updatePill() {
@@ -999,6 +1748,13 @@ export function createView(ctx) {
     }));
     unsubs.push(store.select((s) => s.app.view, (view) => {
       if (view === 'atlas') updateHud();
+    }));
+    // 设置项 nebulaEngine 变化（设置弹窗/引擎菜单/其他窗口）→ 重新解析实际引擎
+    unsubs.push(store.select((s) => (s.settings ? s.settings.nebulaEngine : undefined), () => {
+      if (disposed) return;
+      refreshUnityStatus()
+        .then(() => applyEngine({ reason: 'settings' }))
+        .catch((error) => log.warn('应用星云引擎设置失败', { message: error.message }));
     }));
   }
 
@@ -1055,7 +1811,17 @@ export function createView(ctx) {
       updateHud();
     },
     getSnapshot() {
-      return { mode, clusterFocusId, camera: getCamera(), quality: store.getState().ui.quality };
+      return {
+        mode,
+        clusterFocusId,
+        camera: getCamera(),
+        quality: store.getState().ui.quality,
+        engine,
+        requestedEngine: requestedEngine(),
+        unity: unityStatus
+          ? { available: unityStatus.available, mode: unityStatus.mode || 'embedded-webgl', state: unityStatus.state, running: Boolean(unityStatus.running), dir: unityStatus.dir || null, port: unityStatus.port || null, iframeReady: unityMessageSeen || (unityFrameLoaded && unityAssetsSeen), stats: unityStatus.stats || null }
+          : null,
+      };
     },
   };
 }

@@ -49,7 +49,15 @@ $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 
 $ProjectRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
-if (-not $InstallerPath) { $InstallerPath = Join-Path $ProjectRoot 'artifacts\installer\FCA-Memory-Atlas-Setup-0.1.0-x64.exe' }
+if (-not $InstallerPath) {
+  # 默认取 artifacts\installer 下版本号最新的 Setup.exe（避免硬编码旧版本）
+  $candidates = @(Get-ChildItem (Join-Path $ProjectRoot 'artifacts\installer') -Filter 'FCA-Memory-Atlas-Setup-*-x64.exe' -ErrorAction SilentlyContinue |
+    Where-Object { $_.Name -match 'Setup-(\d+\.\d+\.\d+)-x64\.exe$' } |
+    Sort-Object { [version]($_.Name -replace '.*Setup-(\d+\.\d+\.\d+)-x64\.exe$','$1') } -Descending)
+  if ($candidates.Count -gt 0) { $InstallerPath = $candidates[0].FullName }
+  else { $InstallerPath = Join-Path $ProjectRoot 'artifacts\installer\FCA-Memory-Atlas-Setup-0.2.0-x64.exe' }
+  Write-Host "[install-test] installer (auto): $InstallerPath"
+}
 if (-not $Root) { $Root = Join-Path $ProjectRoot '.cache\install-test' }
 $InstallerPath = [System.IO.Path]::GetFullPath($InstallerPath)
 $Root = [System.IO.Path]::GetFullPath($Root)
@@ -357,6 +365,8 @@ $required = @(
   'resources\app\renderer\styles\tokens.css',
   'resources\app\renderer\nebula\index.js',
   'resources\app\renderer\ui\index.js',
+  'resources\app\main\unity-viewer.js',
+  'resources\app\main\unity-embed.js',
   'runtime\bin\fca-runtime.js',
   'runtime\src\runtime.js',
   'runtime\src\services.js',
@@ -365,10 +375,13 @@ $required = @(
   'runtime\src\persistence\db.js',
   'runtime\src\api\routes\llm.js',
   'node\node.exe',
+  'unity\FCANebulaWebGL\index.html',
   'docs\USER_MANUAL.md',
   'docs\KNOWN_ISSUES.md',
   'docs\INSTALL_TEST.md',
-  'docs\INSTALL_TEST.md',
+  'docs\UNITY_NEBULA.md',
+  'docs\FINAL_ACCEPTANCE.md',
+  'docs\TEST_REPORT.md',
   'docs\adr\ADR-006-installer.md',
   'README.md',
   'CHANGELOG.md'
@@ -387,7 +400,25 @@ if (Test-Path (Join-Path $InstallDir 'BUILD_INFO.json')) {
   $buildInfo = Get-Content (Join-Path $InstallDir 'BUILD_INFO.json') -Raw | ConvertFrom-Json
   $report.build_info = $buildInfo
 }
-Add-Step 'build-info-version-0.1.0' ($null -ne $buildInfo -and $buildInfo.version -eq '0.1.0') "version=$($buildInfo.version) built_at=$($buildInfo.built_at) electron=$($buildInfo.electron) node=$($buildInfo.node.version)"
+$expectedVersion = if ($shaJson -and $shaJson.version) { [string]$shaJson.version } else { '0.2.0' }
+Add-Step 'build-info-version-matches-installer' ($null -ne $buildInfo -and [string]$buildInfo.version -eq $expectedVersion) "version=$($buildInfo.version) expected=$expectedVersion built_at=$($buildInfo.built_at) electron=$($buildInfo.electron) node=$($buildInfo.node.version)"
+
+# Unity 星云（v0.2.0：Unity WebGL 构建，内嵌 Electron 界面；缺失时桌面回退内置 WebGL 星云）
+$unityDir = Join-Path $InstallDir 'unity\FCANebulaWebGL'
+$unityBuildDir = Join-Path $unityDir 'Build'
+$unityEvidence = [ordered]@{
+  path = $unityDir
+  exists = (Test-Path -LiteralPath $unityDir)
+  index_html = (Test-Path -LiteralPath (Join-Path $unityDir 'index.html'))
+  wasm = @(Get-ChildItem -LiteralPath $unityBuildDir -Filter '*.wasm' -ErrorAction SilentlyContinue).Count
+  data = @(Get-ChildItem -LiteralPath $unityBuildDir -Filter '*.data' -ErrorAction SilentlyContinue).Count
+  loader = @(Get-ChildItem -LiteralPath $unityBuildDir -Filter '*.loader.js' -ErrorAction SilentlyContinue).Count
+  framework = @(Get-ChildItem -LiteralPath $unityBuildDir -Filter '*.framework.js' -ErrorAction SilentlyContinue).Count
+  bytes = $(if (Test-Path -LiteralPath $unityDir) { (Get-ChildItem -LiteralPath $unityDir -Recurse -File | Measure-Object Length -Sum).Sum } else { 0 })
+  build_info = $(if ($buildInfo -and $buildInfo.optional_components) { if ($buildInfo.optional_components.unity_webgl) { $buildInfo.optional_components.unity_webgl } elseif ($buildInfo.optional_components.unity_nebula_webgl) { $buildInfo.optional_components.unity_nebula_webgl } else { $null } } else { $null })
+}
+$report.unity = $unityEvidence
+Add-Step 'unity-webgl-nebula-installed' ($unityEvidence.index_html -and $unityEvidence.wasm -gt 0 -and $unityEvidence.data -gt 0 -and $unityEvidence.bytes -gt 10MB) "index.html=$($unityEvidence.index_html) wasm=$($unityEvidence.wasm) data=$($unityEvidence.data) size=$([math]::Round($unityEvidence.bytes/1MB,1))MB build_info=$([bool]$unityEvidence.build_info)"
 
 $appRootSize = 0
 $runtimeSize = 0
@@ -460,16 +491,82 @@ if (Test-Path (Join-Path $InstallDir 'install-report.ini')) {
 }
 Add-Step 'install-report-ini' ($null -ne $installReportIni -and $installReportIni -match 'install_log') 'install-report.ini written'
 
+# install-report.ini 记录 Unity 组件路径（v0.2.0 新增）
+$unityFromIni = $null
+if ($installReportIni -and ($installReportIni -match 'unity_nebula=(.+)')) { $unityFromIni = $Matches[1].Trim() }
+if ($installReportIni) { $report.install_report_unity = $unityFromIni }
+Add-Step 'install-report-unity-component' ($unityFromIni -and ($unityFromIni -like '*unity\FCANebulaWebGL\index.html*')) "unity_nebula_webgl=$unityFromIni"
+
+# DSH 插件 tgz（v0.2.0 起随安装包附带，便于离线安装 DSH 插件；版本号跟随构建时 artifacts/plugin 最新包）
+$pluginDir = Join-Path $InstallDir 'dsh_plugin'
+$pluginTgz = @(Get-ChildItem -LiteralPath $pluginDir -Filter 'dsh-plugin-fca-memory-*.tgz' -ErrorAction SilentlyContinue | Sort-Object Name -Descending | Select-Object -First 1)
+$pluginEvidence = [ordered]@{
+  dir = $pluginDir
+  exists = (Test-Path -LiteralPath $pluginDir)
+  tgz = $(if ($pluginTgz.Count -gt 0) { $pluginTgz[0].FullName } else { $null })
+  tgz_bytes = $(if ($pluginTgz.Count -gt 0) { $pluginTgz[0].Length } else { 0 })
+  readme = (Test-Path -LiteralPath (Join-Path $pluginDir 'README.md'))
+}
+$report.dsh_plugin = $pluginEvidence
+Add-Step 'dsh-plugin-package-installed' ($pluginEvidence.tgz -and $pluginEvidence.tgz_bytes -gt 10KB) "tgz=$($pluginEvidence.tgz) size=$($pluginEvidence.tgz_bytes)B readme=$($pluginEvidence.readme)"
+
 # ================================================================ 6. launch + runtime health
 Write-Host "`n=== [6/8] 启动安装后的应用并连接 Runtime ===" -ForegroundColor Cyan
 $appProc = $null
 $health = $null
 $windowTitle = $null
 $runtimeProc = $null
+# 安装版 Runtime 冒烟：直接使用安装目录内随包 node.exe + runtime 源码，在隔离数据目录
+# init → serve → /health → /graph → 写一条真实记忆 → shutdown（不依赖 GUI/Electron，Low IL 下也可验证）
+function Invoke-InstalledRuntimeSmoke {
+  $nodeExe = Join-Path $InstallDir 'node\node.exe'
+  $entry = Join-Path $InstallDir 'runtime\bin\fca-runtime.js'
+  $smoke = [ordered]@{ node = $nodeExe; entry = $entry; init = $null; serve_started = $false; health = $null; graph = $null; stored = $null; shutdown = $null; ok = $false; error = $null }
+  try {
+    if (-not (Test-Path -LiteralPath $nodeExe)) { throw "安装目录 node.exe 缺失：$nodeExe" }
+    if (-not (Test-Path -LiteralPath $entry)) { throw "安装目录 runtime 入口缺失：$entry" }
+    $initOut = & $nodeExe $entry init "--fca-home=$DataDir" '--quiet' 2>$null | Out-String
+    try { $smoke.init = ($initOut | ConvertFrom-Json) } catch { $smoke.init = $initOut.Trim() }
+    # serve（后台）
+    $psi = New-Object System.Diagnostics.ProcessStartInfo
+    $psi.FileName = $nodeExe
+    $psi.Arguments = "`"$entry`" serve --fca-home=`"$DataDir`" --port=$Port --quiet"
+    $psi.UseShellExecute = $false
+    $psi.CreateNoWindow = $true
+    $serveProc = [System.Diagnostics.Process]::Start($psi)
+    $smoke.serve_pid = $serveProc.Id
+    $health = Wait-RuntimeHealth -Port $Port -TimeoutSec 60
+    $smoke.serve_started = $true
+    $smoke.health = $health
+    $token = (Get-Content (Join-Path $DataDir 'config\runtime-token') -Raw).Trim()
+    $headers = @{ Authorization = "Bearer $token"; 'X-FCA-Client' = 'install-test'; 'Content-Type' = 'application/json' }
+    $graph = Invoke-RestMethod -Uri "http://127.0.0.1:$Port/api/v1/graph" -Headers $headers -TimeoutSec 10
+    $smoke.graph = [ordered]@{ nodes = @($graph.nodes).Count; edges = @($graph.edges).Count }
+    $body = @{ title = '安装版 Runtime 冒烟记忆'; body = '由 installer/install-test.ps1 通过安装目录内 node.exe + runtime 写入。'; memory_type = 'episodic'; importance = 0.5 } | ConvertTo-Json -Depth 5
+    $stored = Invoke-RestMethod -Uri "http://127.0.0.1:$Port/api/v1/memory/store" -Method Post -Headers $headers -Body $body -TimeoutSec 10
+    $smoke.stored = [ordered]@{ id = $stored.memory.id; title = $stored.memory.title }
+    $shutdown = Invoke-RestMethod -Uri "http://127.0.0.1:$Port/api/v1/shutdown" -Method Post -Headers $headers -Body '{}' -TimeoutSec 5
+    $smoke.shutdown = $shutdown
+    $smoke.ok = ($smoke.graph.nodes -ge 1) -and [bool]$smoke.stored.id
+  } catch {
+    $smoke.error = $_.Exception.Message
+    $smoke.ok = $false
+  } finally {
+    try { if ($serveProc -and -not $serveProc.HasExited) { Stop-Process -Id $serveProc.Id -Force -ErrorAction SilentlyContinue } } catch { }
+  }
+  return $smoke
+}
+
 if ($SkipLaunch) {
   Add-Step 'launch-app' $true '(skipped by -SkipLaunch)'
+  $smoke = Invoke-InstalledRuntimeSmoke
+  $report.installed_runtime_smoke = $smoke
+  Add-Step 'installed-runtime-smoke' $smoke.ok ("init/serve/health/graph={0} nodes/store={1}/shutdown ok={2} error={3}" -f $smoke.graph.nodes, $smoke.stored.id, ($null -ne $smoke.shutdown), $smoke.error)
 } elseif ($existingApps.Count -gt 0) {
   Add-Step 'launch-app' $false "已有 FCA Memory Atlas 实例在运行（pid=$($existingApps.Id -join ',')），单实例锁会阻止本次启动；请关闭其它实例后重跑"
+  $smoke = Invoke-InstalledRuntimeSmoke
+  $report.installed_runtime_smoke = $smoke
+  Add-Step 'installed-runtime-smoke' $smoke.ok ("init/serve/health/graph={0} nodes/store={1} error={2}" -f $(if($smoke.graph){$smoke.graph.nodes}else{'-'}), $(if($smoke.stored){$smoke.stored.id}else{'-'}), $smoke.error)
 } else {
   Remove-Item Env:ELECTRON_RUN_AS_NODE -ErrorAction SilentlyContinue
   Remove-Item Env:ELECTRON_NO_ATTACH_CONSOLE -ErrorAction SilentlyContinue
@@ -523,7 +620,7 @@ if ($SkipLaunch) {
   if (($null -ne $health) -and (-not $health.initialized) -and (Test-Path $tokenFile)) {
     try {
       $token = (Get-Content $tokenFile -Raw).Trim()
-      $headers = @{ Authorization = "Bearer $token"; 'X-FCA-Client' = 'install-test'; 'Content-Type' = 'application/json' }
+      $headers = @{ Authorization = "Bearer $token"; 'X-FCA-Client' = 'test'; 'Content-Type' = 'application/json' }
       $initResult = Invoke-RestMethod -Uri "http://127.0.0.1:$Port/api/v1/db/init" -Method Post -Headers $headers -Body '{}' -TimeoutSec 15
       $report.launch.db_init = $initResult
     } catch {
@@ -646,3 +743,5 @@ if ($report.ok) {
   Write-Host "[install-test] RESULT: FAIL（$failed）" -ForegroundColor Red
   exit 1
 }
+
+

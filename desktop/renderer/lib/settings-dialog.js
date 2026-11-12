@@ -54,6 +54,26 @@ function buildSettingsContent({ info, settings, ui, onPickDir, bridge, onShowOnb
   qualitySelect.id = 'settings-quality';
   groupUi.appendChild(row('渲染画质', '星云渲染性能档位；关闭特效后仍保留全部交互与可读性。', qualitySelect));
 
+  // 星云渲染引擎：Unity WebGL（默认，内嵌到星云视图）/ WebGL 内置回退
+  const unityInfo = info.unity || null;
+  const unityAvailable = Boolean(unityInfo && unityInfo.available);
+  const engineSelect = ui.select({
+    options: [
+      { value: 'unity', label: `Unity 星云（内嵌 WebGL）${unityAvailable ? '' : ' · 当前未找到 WebGL 构建'}` },
+      { value: 'webgl', label: 'WebGL 星云（内置回退）' },
+    ],
+    value: settings.nebulaEngine === 'webgl' ? 'webgl' : 'unity',
+    ariaLabel: '星云渲染引擎',
+  });
+  engineSelect.id = 'settings-nebula-engine';
+  groupUi.appendChild(row(
+    '星云渲染引擎',
+    unityAvailable
+      ? `Unity WebGL 构建：${unityInfo.dir}（${unityInfo.source}），内嵌显示在星云视图；加载失败/构建缺失时自动回退 WebGL。`
+      : '未找到 Unity WebGL 构建（index.html）时自动使用 WebGL 回退；打包版位于 <InstallDir>\\unity\\FCANebulaWebGL，开发版位于 <repo>\\artifacts\\unity\\FCANebulaWebGL。',
+    engineSelect,
+  ));
+
   // 路径信息
   const groupPaths = ui.el('div', { class: 'settings-group' }, [
     ui.el('div', { class: 'settings-group__title' }, [icon('folder', { size: 13 }), '位置信息']),
@@ -100,6 +120,7 @@ function buildSettingsContent({ info, settings, ui, onPickDir, bridge, onShowOnb
         autoStartRuntime: autoStart.input.checked,
         closeRuntimeOnExit: closeOnExit.input.checked,
         quality: qualitySelect.value,
+        nebulaEngine: engineSelect.value === 'webgl' ? 'webgl' : 'unity',
       };
     },
   };
@@ -127,6 +148,7 @@ export function openSettingsDialog(ctx) {
       nodeBin: info.nodeBin || null,
       tokenPath: info.tokenPath || '',
       tokenAvailable: Boolean(info.tokenAvailable),
+      unity: info.unity || (typeof window !== 'undefined' ? window.__FCA_UNITY_STATUS__ : null) || null,
     },
     settings,
     ui,

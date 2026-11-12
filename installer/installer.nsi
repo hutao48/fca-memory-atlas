@@ -1,4 +1,4 @@
-; FCA Memory Atlas — NSIS installer (Alpha 0.1)
+﻿; FCA Memory Atlas — NSIS installer (Alpha 0.1)
 ; 由 installer/build.js 调用：
 ;   makensis /V2 /INPUTCHARSET UTF8 /DVERSION= /DPRODUCTVERSION= /DPAYLOAD= /DOUTFILE= /DCOMPRESS= /DBUILT_AT= /DAPIVERSION= installer.nsi
 ;
@@ -256,6 +256,14 @@ Section "FCA Memory Atlas (required)" SecMain
     Push "WARN: docs/USER_MANUAL.md missing (help shortcut may be broken)"
     Call WriteLog
   ${EndIf}
+  ; Unity 星云（WebGL 构建，内嵌 Electron 界面）为可选组件：存在则记录，缺失时桌面回退内置 WebGL 星云（不视为安装失败）
+  ${If} ${FileExists} "$INSTDIR\unity\FCANebulaWebGL\index.html"
+    Push "step: Unity WebGL nebula present: $INSTDIR\unity\FCANebulaWebGL\index.html"
+    Call WriteLog
+  ${Else}
+    Push "WARN: unity/FCANebulaWebGL/index.html missing; desktop will fall back to built-in WebGL nebula"
+    Call WriteLog
+  ${EndIf}
   Push "step: critical files OK"
   Call WriteLog
 
@@ -310,6 +318,22 @@ Section "FCA Memory Atlas (required)" SecMain
   WriteINIStr "$INSTDIR\install-report.ini" "install" "runtime_url" "http://127.0.0.1:${RUNTIME_PORT}"
   WriteINIStr "$INSTDIR\install-report.ini" "install" "uninstaller" "$INSTDIR\Uninstall.exe"
   WriteINIStr "$INSTDIR\install-report.ini" "install" "data_policy" "uninstall keeps data dir by default; prompt asks before deletion"
+  ${If} ${FileExists} "$INSTDIR\unity\FCANebulaWebGL\index.html"
+    WriteINIStr "$INSTDIR\install-report.ini" "install" "unity_nebula_webgl" "$INSTDIR\unity\FCANebulaWebGL\index.html"
+  ${Else}
+    WriteINIStr "$INSTDIR\install-report.ini" "install" "unity_nebula_webgl" "not included (built-in webgl fallback)"
+  ${EndIf}
+  FindFirst $0 $1 "$INSTDIR\dsh_plugin\dsh-plugin-fca-memory-*.tgz"
+  ${If} $1 != ""
+    WriteINIStr "$INSTDIR\install-report.ini" "install" "dsh_plugin" "$INSTDIR\dsh_plugin\$1"
+    Push "step: DSH plugin package present: $INSTDIR\dsh_plugin\$1"
+    Call WriteLog
+  ${Else}
+    WriteINIStr "$INSTDIR\install-report.ini" "install" "dsh_plugin" "not included"
+    Push "WARN: dsh_plugin tgz missing (DSH plugin can still be installed from source)"
+    Call WriteLog
+  ${EndIf}
+  FindClose $0
 
   StrCpy $INSTALL_OK "1"
   Push "step: installation completed successfully"
@@ -410,6 +434,8 @@ Section "Uninstall"
   RMDir /r "$INSTDIR\runtime"
   RMDir /r "$INSTDIR\node"
   RMDir /r "$INSTDIR\docs"
+  RMDir /r "$INSTDIR\unity"
+  RMDir /r "$INSTDIR\dsh_plugin"
   RMDir /r "$INSTDIR\data_template"
   Delete "$INSTDIR\${PRODUCT_EXE}"
   Delete "$INSTDIR\*.dll"

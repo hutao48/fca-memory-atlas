@@ -1,0 +1,403 @@
+{
+    "api_version":  "1",
+    "layout_version":  22,
+    "view":  {
+                 "center":  [
+                                0,
+                                0,
+                                0
+                            ],
+                 "zoom":  1,
+                 "view_id":  null
+             },
+    "nodes":  [
+                  {
+                      "id":  "mem_2aa13f93d3b89e1a73547e97100adffb",
+                      "kind":  "memory",
+                      "type":  "semantic",
+                      "label":  "示例记忆 #01",
+                      "importance":  1,
+                      "display_weight":  2,
+                      "credibility":  1,
+                      "occurred_at":  null,
+                      "degree":  0,
+                      "cluster_id":  "cluster_2",
+                      "position":  {
+                                       "x":  1809.36,
+                                       "y":  -108.31,
+                                       "z":  -18.68
+                                   },
+                      "pinned":  false,
+                      "tags":  [
+                                   "workspace:FCA",
+                                   "sample-data"
+                               ],
+                      "tag_ids":  [
+
+                                  ],
+                      "deleted":  false,
+                      "agent_generated":  false,
+                      "demo":  false
+                  },
+                  {
+                      "id":  "mem_56604400b56fd7203bce506be301ac76",
+                      "kind":  "memory",
+                      "type":  "episodic",
+                      "label":  "示例记忆 #02",
+                      "importance":  0.45,
+                      "display_weight":  1,
+                      "credibility":  0.5,
+                      "occurred_at":  null,
+                      "degree":  0,
+                      "cluster_id":  "cluster_0",
+                      "position":  {
+                                       "x":  76.56,
+                                       "y":  -1783.21,
+                                       "z":  19.03
+                                   },
+                      "pinned":  false,
+                      "tags":  [
+                                   "workspace:FCA",
+                                   "sample-data"
+                               ],
+                      "tag_ids":  [
+
+                                  ],
+                      "deleted":  false,
+                      "agent_generated":  true,
+                      "demo":  false
+                  },
+                  {
+                      "id":  "mem_a00465065a1df2952d84f16c7d6c583d",
+                      "kind":  "memory",
+                      "type":  "episodic",
+                      "label":  "示例记忆 #03",
+                      "importance":  0.45,
+                      "display_weight":  1,
+                      "credibility":  0.5,
+                      "occurred_at":  null,
+                      "degree":  0,
+                      "cluster_id":  "cluster_0",
+                      "position":  {
+                                       "x":  -664.41,
+                                       "y":  -1583.32,
+                                       "z":  22.77
+                                   },
+                      "pinned":  false,
+                      "tags":  [
+                                   "workspace:FCA",
+                                   "sample-data"
+                               ],
+                      "tag_ids":  [
+
+                                  ],
+                      "deleted":  false,
+                      "agent_generated":  true,
+                      "demo":  false
+                  },
+                  {
+                      "id":  "mem_b59bc2c3c5492d1e82fb1e8dd77ec75b",
+                      "kind":  "memory",
+                      "type":  "episodic",
+                      "label":  "示例记忆 #04",
+                      "importance":  0.45,
+                      "display_weight":  1,
+                      "credibility":  0.5,
+                      "occurred_at":  null,
+                      "degree":  0,
+                      "cluster_id":  "cluster_0",
+                      "position":  {
+                                       "x":  -1591.21,
+                                       "y":  601.24,
+                                       "z":  16.87
+                                   },
+                      "pinned":  false,
+                      "tags":  [
+                                   "workspace:FCA",
+                                   "sample-data"
+                               ],
+                      "tag_ids":  [
+
+                                  ],
+                      "deleted":  false,
+                      "agent_generated":  true,
+                      "demo":  false
+                  },
+                  {
+                      "id":  "mem_0b71ac9bc6dd1ad7f755227dd3a6cbda",
+                      "kind":  "memory",
+                      "type":  "episodic",
+                      "label":  "示例记忆 #05",
+                      "importance":  0.45,
+                      "display_weight":  1,
+                      "credibility":  0.5,
+                      "occurred_at":  null,
+                      "degree":  0,
+                      "cluster_id":  "cluster_0",
+                      "position":  {
+                                       "x":  1855.59,
+                                       "y":  67.07,
+                                       "z":  12.36
+                                   },
+                      "pinned":  false,
+                      "tags":  [
+                                   "workspace:FCA",
+                                   "sample-data"
+                               ],
+                      "tag_ids":  [
+
+                                  ],
+                      "deleted":  false,
+                      "agent_generated":  true,
+                      "demo":  false
+                  },
+                  {
+                      "id":  "mem_29d51197c0bfaf08b38a1fda9af003b1",
+                      "kind":  "memory",
+                      "type":  "episodic",
+                      "label":  "示例记忆 #06",
+                      "importance":  0.6,
+                      "display_weight":  1,
+                      "credibility":  0.5,
+                      "occurred_at":  null,
+                      "degree":  0,
+                      "cluster_id":  "cluster_0",
+                      "position":  {
+                                       "x":  1730.32,
+                                       "y":  -804.14,
+                                       "z":  21.34
+                                   },
+                      "pinned":  false,
+                      "tags":  [
+                                   "workspace:FCA",
+                                   "sample-data"
+                               ],
+                      "tag_ids":  [
+
+                                  ],
+                      "deleted":  false,
+                      "agent_generated":  true,
+                      "demo":  false
+                  },
+                  {
+                      "id":  "mem_3273d503f7dadf9bcf668d9afd711200",
+                      "kind":  "memory",
+                      "type":  "procedural",
+                      "label":  "示例记忆 #07",
+                      "importance":  0.55,
+                      "display_weight":  1,
+                      "credibility":  0.5,
+                      "occurred_at":  null,
+                      "degree":  1,
+                      "cluster_id":  "cluster_1",
+                      "position":  {
+                                       "x":  670.76,
+                                       "y":  -1534.97,
+                                       "z":  3.09
+                                   },
+                      "pinned":  false,
+                      "tags":  [
+                                   "workspace:FCA",
+                                   "sample-data"
+                               ],
+                      "tag_ids":  [
+
+                                  ],
+                      "deleted":  false,
+                      "agent_generated":  true,
+                      "demo":  false
+                  },
+                  {
+                      "id":  "mem_0ae374fb6dd3a306cfa04e9f493b0c7f",
+                      "kind":  "memory",
+                      "type":  "procedural",
+                      "label":  "示例记忆 #08",
+                      "importance":  0.55,
+                      "display_weight":  1,
+                      "credibility":  0.5,
+                      "occurred_at":  null,
+                      "degree":  1,
+                      "cluster_id":  "cluster_1",
+                      "position":  {
+                                       "x":  1508.58,
+                                       "y":  934.86,
+                                       "z":  2.81
+                                   },
+                      "pinned":  false,
+                      "tags":  [
+                                   "workspace:FCA",
+                                   "sample-data"
+                               ],
+                      "tag_ids":  [
+
+                                  ],
+                      "deleted":  false,
+                      "agent_generated":  true,
+                      "demo":  false
+                  },
+                  {
+                      "id":  "mem_7b3d2d5cdea02bfacdd162bcaf7e0b61",
+                      "kind":  "memory",
+                      "type":  "procedural",
+                      "label":  "示例记忆 #09",
+                      "importance":  0.55,
+                      "display_weight":  1,
+                      "credibility":  0.5,
+                      "occurred_at":  null,
+                      "degree":  1,
+                      "cluster_id":  "cluster_1",
+                      "position":  {
+                                       "x":  26.566300000000041,
+                                       "y":  360.6793,
+                                       "z":  -0.84809999999999985
+                                   },
+                      "pinned":  false,
+                      "tags":  [
+                                   "workspace:FCA",
+                                   "sample-data"
+                               ],
+                      "tag_ids":  [
+
+                                  ],
+                      "deleted":  false,
+                      "agent_generated":  true,
+                      "demo":  false
+                  },
+                  {
+                      "id":  "ent_22a399065458d8c9a9cac8addbc54f6e",
+                      "kind":  "entity",
+                      "type":  "project",
+                      "label":  "示例记忆 #10",
+                      "importance":  0.45000000000000007,
+                      "display_weight":  1,
+                      "credibility":  1,
+                      "occurred_at":  null,
+                      "degree":  3,
+                      "cluster_id":  "cluster_1",
+                      "position":  {
+                                       "x":  -1886.9,
+                                       "y":  127.72,
+                                       "z":  6.43
+                                   },
+                      "pinned":  false,
+                      "tags":  [
+                                   "sample-data"
+                               ],
+                      "tag_ids":  [
+
+                                  ],
+                      "deleted":  false,
+                      "agent_generated":  false,
+                      "demo":  false
+                  }
+              ],
+    "edges":  [
+                  {
+                      "id":  "rel_066c4c05ee5a61904259a4a342ff6138",
+                      "from":  "mem_3273d503f7dadf9bcf668d9afd711200",
+                      "to":  "ent_22a399065458d8c9a9cac8addbc54f6e",
+                      "relation_type":  "belongs_to_project",
+                      "weight":  1,
+                      "directed":  true,
+                      "confidence":  1,
+                      "label":  "属于项目",
+                      "deleted":  false
+                  },
+                  {
+                      "id":  "rel_61468095da5d6445c81084723620f4f4",
+                      "from":  "mem_0ae374fb6dd3a306cfa04e9f493b0c7f",
+                      "to":  "ent_22a399065458d8c9a9cac8addbc54f6e",
+                      "relation_type":  "belongs_to_project",
+                      "weight":  1,
+                      "directed":  true,
+                      "confidence":  1,
+                      "label":  "属于项目",
+                      "deleted":  false
+                  },
+                  {
+                      "id":  "rel_524001823565fe98f1c85d277d2201b0",
+                      "from":  "mem_7b3d2d5cdea02bfacdd162bcaf7e0b61",
+                      "to":  "ent_22a399065458d8c9a9cac8addbc54f6e",
+                      "relation_type":  "belongs_to_project",
+                      "weight":  1,
+                      "directed":  true,
+                      "confidence":  1,
+                      "label":  "属于项目",
+                      "deleted":  false
+                  }
+              ],
+    "clusters":  [
+                     {
+                         "id":  "cluster_0",
+                         "label":  "示例聚类 #01",
+                         "node_ids":  [
+                                          "mem_29d51197c0bfaf08b38a1fda9af003b1",
+                                          "mem_0b71ac9bc6dd1ad7f755227dd3a6cbda",
+                                          "mem_b59bc2c3c5492d1e82fb1e8dd77ec75b",
+                                          "mem_a00465065a1df2952d84f16c7d6c583d",
+                                          "mem_56604400b56fd7203bce506be301ac76"
+                                      ],
+                         "centroid":  {
+                                          "x":  281.37,
+                                          "y":  -700.47,
+                                          "z":  18.47
+                                      },
+                         "density":  0.003,
+                         "dominant_types":  [
+                                                "episodic"
+                                            ],
+                         "color_hint":  "cyan"
+                     },
+                     {
+                         "id":  "cluster_1",
+                         "label":  "示例聚类 #02",
+                         "node_ids":  [
+                                          "ent_22a399065458d8c9a9cac8addbc54f6e",
+                                          "mem_7b3d2d5cdea02bfacdd162bcaf7e0b61",
+                                          "mem_3273d503f7dadf9bcf668d9afd711200",
+                                          "mem_0ae374fb6dd3a306cfa04e9f493b0c7f"
+                                      ],
+                         "centroid":  {
+                                          "x":  79.75,
+                                          "y":  -27.93,
+                                          "z":  2.87
+                                      },
+                         "density":  0.003,
+                         "dominant_types":  [
+                                                "procedural",
+                                                "project"
+                                            ],
+                         "color_hint":  "gold"
+                     },
+                     {
+                         "id":  "cluster_2",
+                         "label":  "示例聚类 #03",
+                         "node_ids":  [
+                                          "mem_2aa13f93d3b89e1a73547e97100adffb"
+                                      ],
+                         "centroid":  {
+                                          "x":  1809.36,
+                                          "y":  -108.31,
+                                          "z":  -18.68
+                                      },
+                         "density":  1,
+                         "dominant_types":  [
+                                                "semantic"
+                                            ],
+                         "color_hint":  "blue"
+                     }
+                 ],
+    "stats":  {
+                  "nodes":  10,
+                  "edges":  3,
+                  "clusters":  3,
+                  "generated_at":  "2026-11-12T10:38:36.0374730Z"
+              },
+    "_sample":  true,
+    "_sample_note":  "离线预览样本：标题/标签/聚类名已脱敏；用于 Unity Editor 无 Runtime 时预览旋臂布局。",
+    "_sample_source":  "http://127.0.0.1:17860/api/v1/graph",
+    "_sample_generated_at":  "2026-11-12T10:38:36.0374730Z",
+    "_workspace_summary":  {
+                               "FCA":  9
+                           }
+}

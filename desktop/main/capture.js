@@ -1,4 +1,4 @@
-'use strict';
+﻿'use strict';
 
 /**
  * FCA Memory Atlas — 截图入口（Electron 入口，非生产窗口逻辑）
@@ -30,6 +30,7 @@ const paths = require('./paths');
 const { createLogger } = require('./logger');
 const { createSettingsStore } = require('./settings');
 const { createRuntimeManager } = require('./runtime-manager');
+const { createUnityEmbed } = require('./unity-embed');
 const { createNetClient } = require('./net-client');
 const { registerIpc } = require('./ipc');
 
@@ -82,6 +83,8 @@ const args = {
   freshUi: CLI['keep-ui'] ? false : true,
   // 截图专用 userData 目录（并行截图时每个进程用独立目录，避免 Chromium profile 锁冲突）
   userData: CLI.userdata ? path.resolve(ROOT, String(CLI.userdata)) : path.join(ROOT, '.cache', 'capture-userdata'),
+  // 星云渲染引擎：截图默认 webgl（保持历史截图矩阵稳定/可复现）；验证 Unity 集成时显式传 --nebula-engine=unity
+  nebulaEngine: CLI['nebula-engine'] ? String(CLI['nebula-engine']) : 'webgl',
 };
 
 let winWidth = 1600;
@@ -233,6 +236,7 @@ settingsStore.override({
   port: args.port,
   autoStartRuntime: false,
   closeRuntimeOnExit: true,
+  nebulaEngine: ['unity', 'webgl'].includes(args.nebulaEngine) ? args.nebulaEngine : 'webgl',
 });
 try {
   fs.mkdirSync(args.fcaHome, { recursive: true });
@@ -256,6 +260,8 @@ const runtimeManager = createRuntimeManager({
   settings: settingsStore,
   getWindow: () => BrowserWindow.getAllWindows()[0] || null,
 });
+// 截图进程同样启用 Unity WebGL 内嵌：验收时可通过 window.__FCA_APP__.startUnity() 触发 iframe 内嵌
+const unityEmbed = createUnityEmbed({ logger, settings: settingsStore });
 let ipc = null;
 
 // 截图需要连续创建/销毁多个窗口；阻止 Electron 在最后一个窗口关闭时自动退出。
@@ -480,6 +486,8 @@ async function runShot(shot) {
           selected: s.selection && s.selection.ids,
           detailTarget: s.detail && s.detail.targetId,
           nebula: (() => { try { return a.getNebulaStats ? a.getNebulaStats() : null; } catch (e) { return null; } })(),
+          nebulaEngine: s.settings && s.settings.nebulaEngine,
+          unity: (() => { try { return window.__FCA_UNITY_STATUS__ || null; } catch (e) { return null; } })(),
           onboardingOpen: s.onboarding && s.onboarding.open,
           dialog: s.ui && s.ui.dialog,
           fatal: s.app && s.app.fatalError,
@@ -517,7 +525,7 @@ async function main() {
       logger.warn('capture', '清空 localStorage 失败（忽略）', { message: error.message });
     }
   }
-  ipc = registerIpc({ settingsStore, runtimeManager, logger, getWindow: () => BrowserWindow.getAllWindows()[0] || null });
+  ipc = registerIpc({ settingsStore, runtimeManager, unityEmbed, logger, getWindow: () => BrowserWindow.getAllWindows()[0] || null });
   const runtimeReady = await ensureRuntimeReady();
   if (!runtimeReady) logger.warn('capture', 'Runtime 未就绪：按离线/空态截图');
   // 等待 token 出现（Runtime 启动时生成）
@@ -577,6 +585,11 @@ async function shutdown(code) {
     console.error('[capture] shutdown error', error && error.message);
   }
   try {
+    if (unityEmbed) await Promise.race([unityEmbed.dispose(), new Promise((resolve) => setTimeout(resolve, 6000))]);
+  } catch (error) {
+    console.error('[capture] unity shutdown error', error && error.message);
+  }
+  try {
     await logger.flush();
   } catch {
     /* ignore */
@@ -604,3 +617,4 @@ main().catch((error) => {
   console.error('[capture] 失败', error);
   shutdown(2);
 });
+

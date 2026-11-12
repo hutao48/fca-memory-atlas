@@ -124,6 +124,7 @@ export function apply(ctx, rawConfig) {
         phase: bridge.state.phase,
         capturePolicy: config.capturePolicy,
         autoMemory: config.autoMemory,
+        autoMemoryAgentNodes: config.autoMemoryAgentNodes,
         injectContext: config.injectContext,
       })
     }).catch((error) => {
@@ -143,5 +144,6 @@ export function apply(ctx, rawConfig) {
     schema: configSchema.mechanism,
     capturePolicy: config.capturePolicy,
     autoMemory: config.autoMemory,
+    autoMemoryAgentNodes: config.autoMemoryAgentNodes,
   })
 }

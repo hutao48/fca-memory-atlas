@@ -11,8 +11,13 @@ const os = require('node:os');
 const path = require('node:path');
 
 const PRODUCT_NAME = 'FCA Memory Atlas';
-const PRODUCT_VERSION = '0.1.0';
 const FCA_API_VERSION = '1';
+// 产品版本以 desktop/package.json 为准，避免与安装包 BUILD_INFO 不一致（开发/打包均可用）。
+let PRODUCT_VERSION = '0.2.0';
+try {
+  const pkg = require('../package.json');
+  if (pkg && pkg.version) PRODUCT_VERSION = String(pkg.version);
+} catch { /* 保留回退值 */ }
 const DEFAULT_PORT = 17860;
 const DESKTOP_DIR = path.resolve(__dirname, '..'); // <root>/desktop
 const PROJECT_ROOT = path.resolve(DESKTOP_DIR, '..'); // <root>

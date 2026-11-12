@@ -223,7 +223,7 @@ h.qa('memory: GET 详情返回 memory/relations/layout/versions_count', async ()
   assert.ok(b.relations.length >= 1, '参与者应触发自动关系');
   assert.ok(b.layout === null || (b.layout && Number.isFinite(b.layout.x)), 'layout 应为 null 或含坐标');
   assert.ok(b.versions_count >= 1);
-  const missing = await http().get('/api/v1/memory/mem_00000000000000000000000000000000');
+  const missing = await http().get('/api/v1/memory/mem_0123456789abcdef0123456789abcdef');
   assert.equal(missing.status, 404);
   assert.equal(errCode(missing), 'NOT_FOUND');
   return `relations=${b.relations.length} versions=${b.versions_count}`;

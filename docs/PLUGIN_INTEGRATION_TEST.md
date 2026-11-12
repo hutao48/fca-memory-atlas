@@ -1,10 +1,10 @@
-﻿# DSH 插件集成测试报告（FCA Memory Atlas · Product B）
+# DSH 插件集成测试报告（FCA Memory Atlas · Product B）
 
-- 插件：`dsh-plugin-fca-memory@0.1.4`（源码 `D:\FCA\FCA-Memory-Atlas\dsh_plugin`，交付包 `artifacts/plugin/dsh-plugin-fca-memory-0.1.4.tgz`；v0.1.4 新增完全自动记忆 `autoMemory` 与恢复后立即 flush）
+- 插件：`dsh-plugin-fca-memory@0.2.1`（源码 `D:\FCA\FCA-Memory-Atlas\dsh_plugin`，交付包 `artifacts/plugin/dsh-plugin-fca-memory-0.2.1.tgz`；v0.2.1 修复子会话 user-role 消息误采 + 清理 3 条 teammate 提示词噪声；v0.2 工作区归属 + Agent 思考节点、v0.1.4 自动记忆保留）
 - 被测环境（本次全部为真实组件，不含 stub）：
-  - DSH NEXT `dsh-desktop-next 2.0.22-next`，profile `desktop`（`C:\\Users\\<user>\.dsh\profiles\desktop`）
+  - DSH NEXT `dsh-desktop-next 2.0.22-next`，profile `desktop`（`<DSH_HOME>\profiles\desktop`）
   - 真实 FCA Local Runtime `0.1.0`（`D:\FCA\FCA-Memory-Atlas\runtime\bin\fca-runtime.js`），`http://127.0.0.1:17860`
-  - 真实数据目录 `%LOCALAPPDATA%\FCA-Memory-Atlas`（`C:\\Users\\<user>\AppData\Local\FCA-Memory-Atlas`），SQLite `db\fca.db`
+  - 真实数据目录 `%LOCALAPPDATA%\FCA-Memory-Atlas`（`C:\Users\<user>\AppData\Local\FCA-Memory-Atlas`），SQLite `db\fca.db`
 - 测试者：Teammate `dsh-plugin`（在真实 DSH Host 内安装，用真实 Agent 会话调用工具）
 - 时间：2026-11-12（UTC 08:22–08:37 / 本机 17:22–17:37）
 - 结论：**真实安装（`application: "applied"`）→ 真实加载（Host 日志 `plugin loaded` / `bridge started`）→ 4 个 `fca_*` 工具注册 → 真实 Agent 调用 → 真实 Runtime HTTP/SQLite 往返 → 真实会话事件采集落库（T17）全部通过**；`/fca` 命令注册已验证、UI 执行未验证（原因见 §8.1）。事件采集队列在“运行时恢复后 flush 时机”有一个已定位的延迟边界（不丢事件），见 §6.5。
@@ -21,7 +21,7 @@
 | T3 | 插件真实加载（`apply` 执行） | Host 日志 + `cordis_inspect_query Config` | ✅ `08:24:02.481Z [info] plugin loaded`、`08:24:03.021Z bridge started`（§3.1） |
 | T4 | 工具真实注册且 Agent 可见 | `cordis_inspect_query(host, Tool, listTools)` + 本会话工具列表更新 | ✅ 4 个工具：`fca_status` / `fca_memory_search` / `fca_memory_store` / `fca_memory_get`（§3.4） |
 | T5 | 真实 Agent 调用 `fca_status` | 本会话直接调用插件工具 | ✅ `phase:"connected"`，`runtime.reachable=true`，`version:"0.1.0"`，`api_version:"1"`，`compatible=true`，`db:"ok"`（§4） |
-| T6 | 真实 Agent 调用 `fca_memory_store` | 同上（真实 Runtime） | ✅ 返回 `mem_e9fce187752fbcf65a7906c9691c38a2`；另一次由 Lead 真实会话写入 `mem_141a67e43e978e5dc8399f6ca9a78a0a` |
+| T6 | 真实 Agent 调用 `fca_memory_store` | 同上（真实 Runtime） | ✅ 返回 `mem_<redacted>`；另一次由 Lead 真实会话写入 `mem_<redacted>` |
 | T7 | 真实 Agent 调用 `fca_memory_search` | 同上（hybrid） | ✅ `count=2`，命中上述两条，含 `score` / `excerpt` |
 | T8 | 真实 Agent 调用 `fca_memory_get` | 同上 | ✅ 返回完整 body、`relations=[belongs_to_project]`、`versions_count=1` |
 | T9 | 非法入参被工具参数校验拦截 | `fca_memory_get{id:'not-a-memory-id'}` | ✅ `{ok:false,error:{code:'BAD_REQUEST',…}}` |
@@ -33,6 +33,9 @@
 | T15 | 真实 FCA Runtime（非 stub）复测 | 真实 Runtime `init+serve` + 真实 Agent 工具调用 | ✅ **通过**，见 §7 |
 | T16 | `/fca` 命令真实执行 | 需要 UI 触发命令 | ⚠️ 注册已生效（Host 日志无 `command registration failed`）；**UI 执行未验证**（无浏览器控制，见 §8.1） |
 | T17 | 事件采集在真实会话中的落库 | 真实 Host `session/event` → Runtime `/api/v1/event` | ✅ **真实采集并落库**：`session a9e94d45…` 的 `turn/end` → `agent.event_received`（counters received=1/sent=1，Runtime `POST /api/v1/event 201`），见 §8.2 |
+| T18 | v0.2 升级真实安装 + 加载 | 新目录解包 tgz → `plugin_manager remove_bundle` → `install_bundle` | ✅ **2026-11-12 19:20 实测**：`application:"applied"`、`version:"0.2.0"`；Host 日志 `plugin loaded {…,"autoMemoryAgentNodes":"summary"}`；`fca_status.plugin.version=0.2.0`、`auto_memory.workspace.last={label:"FCA",cwd:"D:\\FCA",source:"session.header.cwd"}`（§11） |
+| T19 | 工作区标签 + Agent 思考节点真实落库 | 真实子代理会话（推理+工具调用+结果）→ `turn/end` → Runtime 记忆 | ✅ **真实**：`GET /api/v1/memories` 可检索到带 `workspace:FCA` 与 `Agent思考节点` 标签的记忆（含【关键推理】/【工具执行】/【结论】三节与真实工具节点），见 §11.3 |
+| T20 | v0.2.1 子会话 user-role 消息过滤（真实回归） | 真实 workflow 子代理会话 spawn prompt + `turn/end` | ✅ **真实**：子会话 `6d4ba096…`（header `parentSession`/`origin:"subagent"`/`delegationDepth:2`）的 spawn prompt（user/message + `source.kind=user`）**未**产生 episodic 记忆，`fca_status.auto_memory.counters.skippedChildSession=5`、`sessions.child=2`；该子会话的 Agent 思考节点按设计仍写入（测试残留已软删），见 §11.7 |
 
 ## 2. 安装输出（T1/T2 原始结果）
 
@@ -50,7 +53,7 @@
     "exitCode": 0,
     "output": "✓ Lockfile passes supply-chain policies (verified 22m ago)\nProgress: resolved 1, reused 0, downloaded 0, added 0\n[WARN] Issues with peer dependencies found.\nPackages: -12\n------------\nProgress: resolved 121, reused 0, downloaded 0, added 0, done\n\ndependencies:\n+ dsh-plugin-fca-memory 0.1.0 <- D:\\FCA\\FCA-Memory-Atlas\\dsh_plugin\n\nDone in 870ms using pnpm v11.28.5\n",
     "truncated": false,
-    "logPath": "C:\\\\Users\\\\<user>\\.dsh\\profiles\\desktop\\.plugin-manager\\logs\\operation-g0OjQP\\pnpm.log"
+    "logPath": "C:\\Users\\<user>\\.dsh\\profiles\\desktop\\.plugin-manager\\logs\\operation-g0OjQP\\pnpm.log"
   },
   "bundle": "dsh-plugin-fca-memory",
   "version": "0.1.0",
@@ -70,7 +73,7 @@ dsh.profile.bundles: [..., "dsh-plugin-fca-memory"]   （列表末尾，已选�
 
 ## 3. 加载证据（T3/T4）
 
-### 3.1 Host 日志（`C:\\Users\\<user>\.dsh\logs\desktop-next.log`）
+### 3.1 Host 日志（`<DSH_HOME>\logs\desktop-next.log`）
 
 ```
 2026-11-12T08:24:02.481Z [info] plugin loaded {"runtimeUrl":"http://127.0.0.1:17860/","schema":"standard-schema","capturePolicy":"turn-summaries"} [host.kernel.fca-memory-bridge] log {"hostTime":1794471842480,"hostSequence":3,"pluginId":"include:fca-memory-bridge"}
@@ -85,13 +88,13 @@ dsh.profile.bundles: [..., "dsh-plugin-fca-memory"]   （列表末尾，已选�
 
 ```json
 "local": {
-  "fcaHome": "C:\\\\Users\\\\<user>\\AppData\\Local\\FCA-Memory-Atlas",
+  "fcaHome": "C:\\Users\\<user>\\AppData\\Local\\FCA-Memory-Atlas",
   "fcaHomeExists": true,
-  "tokenPath": "C:\\\\Users\\\\<user>\\AppData\\Local\\FCA-Memory-Atlas\\config\\runtime-token",
+  "tokenPath": "C:\\Users\\<user>\\AppData\\Local\\FCA-Memory-Atlas\\config\\runtime-token",
   "tokenPresent": true,
   "runtimeScriptPath": "D:\\FCA\\FCA-Memory-Atlas\\runtime\\bin\\fca-runtime.js",
   "runtimeScriptPresent": true,
-  "nodePath": "C:\\\\Users\\\\<user>\\AppData\\Local\\Programs\\DSH NEXT\\resources\\runtime\\x64\\primary-runtime\\dependencies\\node\\bin\\node.exe",
+  "nodePath": "C:\\Users\\<user>\\AppData\\Local\\Programs\\DSH NEXT\\resources\\runtime\\x64\\primary-runtime\\dependencies\\node\\bin\\node.exe",
   "nodeSource": "dsh-runtime"
 }
 ```
@@ -110,7 +113,7 @@ cordis_inspect_query(host, Config, listConfigs{name:'dsh-plugin-fca-memory'})
 
 ### 3.4 工具注册（T4）
 
-`cordis_inspect_query(host, Tool, listTools)` 返回的工具列表中出现且仅出现这 4 个 `fca_*` 工具（`C:\\Users\\<user>\AppData\Local\Temp\dsh-spill-…\…cordis_inspect_query.txt` 行 386/449/515/536）：
+`cordis_inspect_query(host, Tool, listTools)` 返回的工具列表中出现且仅出现这 4 个 `fca_*` 工具（`C:\Users\<user>\AppData\Local\Temp\dsh-spill-…\…cordis_inspect_query.txt` 行 386/449/515/536）：
 
 - `fca_memory_search`（hybrid/fulltext/semantic 检索）
 - `fca_memory_store`（写入记忆，`origin=agent`）
@@ -148,17 +151,17 @@ fca_status → ok=true
 fca_memory_store(title:"FCA 插件真实链路验证：DSH Agent 写入", memory_type:"episodic",
                  importance:0.8, tags:["dsh-plugin","e2e","真实链路"], project:"FCA Memory Atlas")
   → { "ok":true,
-      "memory":{ "id":"mem_e9fce187752fbcf65a7906c9691c38a2", "title":"FCA 插件真实链路验证：DSH Agent 写入",
+      "memory":{ "id":"mem_<redacted>", "title":"FCA 插件真实链路验证：DSH Agent 写入",
                  "memory_type":"episodic", "importance":0.8, "tags":["dsh-plugin","e2e","真实链路"],
                  "version":1, "deleted":false },
       "runtime":{ "url":"http://127.0.0.1:17860", "version":"0.1.0", "api_version":"1" } }
 
 fca_memory_search(query:"FCA-PLUGIN-E2E 真实链路 插件验证", mode:"hybrid", limit:5)
   → { "ok":true, "count":2, "took_ms":1.17,
-      "items":[ {id:"mem_e9fce187752fbcf65a7906c9691c38a2", score:1, excerpt:"…"},
-                {id:"mem_141a67e43e978e5dc8399f6ca9a78a0a", score:0.20839, excerpt:"…"} ] }
+      "items":[ {id:"mem_<redacted>", score:1, excerpt:"…"},
+                {id:"mem_<redacted>", score:0.20839, excerpt:"…"} ] }
 
-fca_memory_get(id:"mem_e9fce187752fbcf65a7906c9691c38a2")
+fca_memory_get(id:"mem_<redacted>")
   → { "ok":true, "memory":{ id, title, body(完整), participants:[], project:{entity_id, name:"FCA Memory Atlas"},
                             occurred_precision:"unknown", created_at:"2026-11-12T08:24:11.659Z",
                             created_by:{kind:"agent", id:"dsh-plugin"} },
@@ -177,21 +180,21 @@ fca_memory_get(id:"not-a-memory-id")
 
 ## 5. Runtime 通信证据（T10，真实 Runtime 访问日志）
 
-真实 Runtime 自身访问日志 `C:\\Users\\<user>\AppData\Local\FCA-Memory-Atlas\logs\runtime-20261112.log`（节选，`user_agent:"node"` 即插件 Host 内 `fetch` 发起的真实请求；`user_agent` 为 Windows PowerShell 的是测试者的旁路探针）：
+真实 Runtime 自身访问日志 `C:\Users\<user>\AppData\Local\FCA-Memory-Atlas\logs\runtime-20261112.log`（节选，`user_agent:"node"` 即插件 Host 内 `fetch` 发起的真实请求；`user_agent` 为 Windows PowerShell 的是测试者的旁路探针）：
 
 ```
-08:24:02.551Z GET    /health                     200 client=dsh-plugin trace=trc_8b1df1181822a63ab8907db27deee098 bytes=158
-08:24:11.327Z POST   /api/v1/memory/store        201 client=dsh-plugin trace=trc_db1b246a7aa59debfdd73933a4d1da45 bytes=1600
-08:24:11.662Z POST   /api/v1/memory/store        201 client=dsh-plugin trace=trc_bfd720bbdb7792cd7500ca7441e6eb44 bytes=1226
-08:24:13.726Z POST   /api/v1/memory/search       200 client=dsh-plugin trace=trc_5626740ceae3a35b3ae53e61917fd863 bytes=4485
-08:24:13.728Z GET    /api/v1/memory/mem_141a67e…200 client=dsh-plugin trace=trc_ec4b22c62c5b734390dc8a9b8a34a0c0 bytes=2186
-08:24:14.681Z POST   /api/v1/memory/search       200 client=dsh-plugin trace=trc_b4c3fdf34fb96308292315a775f44a27 bytes=3900
-08:24:14.682Z GET    /api/v1/memory/mem_e9fce18…200 client=dsh-plugin trace=trc_10a3d5feb0621c3d73c99e7803274f39 bytes=1812
-08:24:32.481Z GET    /health                     200 client=dsh-plugin trace=trc_69e6efb91ae1c6904749e285340ae54c bytes=158
-08:25:02.481Z GET    /health                     200 client=dsh-plugin trace=trc_e4c5ec6e912cc3311f6adb1500e4ecad bytes=159
-08:25:32.481Z GET    /health                     200 client=dsh-plugin trace=trc_b1f0388a69b39e1dd52ed4cd03419630 bytes=159
-08:26:02.481Z GET    /health                     200 client=dsh-plugin trace=trc_41b1e6b65755d4fec0ad63f9a64ec7c6 bytes=159
-08:26:32.480Z GET    /health                     200 client=dsh-plugin trace=trc_8046ad4bdbeacd86061c812b7b61b8d9 bytes=159
+08:24:02.551Z GET    /health                     200 client=dsh-plugin trace=trc_<redacted> bytes=158
+08:24:11.327Z POST   /api/v1/memory/store        201 client=dsh-plugin trace=trc_<redacted> bytes=1600
+08:24:11.662Z POST   /api/v1/memory/store        201 client=dsh-plugin trace=trc_<redacted> bytes=1226
+08:24:13.726Z POST   /api/v1/memory/search       200 client=dsh-plugin trace=trc_<redacted> bytes=4485
+08:24:13.728Z GET    /api/v1/memory/mem_141a67e…200 client=dsh-plugin trace=trc_<redacted> bytes=2186
+08:24:14.681Z POST   /api/v1/memory/search       200 client=dsh-plugin trace=trc_<redacted> bytes=3900
+08:24:14.682Z GET    /api/v1/memory/mem_e9fce18…200 client=dsh-plugin trace=trc_<redacted> bytes=1812
+08:24:32.481Z GET    /health                     200 client=dsh-plugin trace=trc_<redacted> bytes=158
+08:25:02.481Z GET    /health                     200 client=dsh-plugin trace=trc_<redacted> bytes=159
+08:25:32.481Z GET    /health                     200 client=dsh-plugin trace=trc_<redacted> bytes=159
+08:26:02.481Z GET    /health                     200 client=dsh-plugin trace=trc_<redacted> bytes=159
+08:26:32.480Z GET    /health                     200 client=dsh-plugin trace=trc_<redacted> bytes=159
 ```
 
 - `client:"dsh-plugin"` 来自插件显式发送的 `X-FCA-Client` 头；`trace_id` 来自插件 `X-FCA-Trace-Id`（32 位 hex，`trc_` 前缀）；
@@ -215,7 +218,7 @@ fca_memory_get(id:"not-a-memory-id")
 
 ### 6.3 早期误操作的清理（已处理，历史）
 
-- 早期用 PowerShell 变量 `$home` 撞上只读变量 `$HOME`，stub 曾在 `C:\\Users\\<user>\` 下创建 `config/ logs/ events/ db/`；已核对创建时间与内容后按绝对路径删除。本次验证前该数据目录已由 Runtime 重新 `init`（真实 `db\fca.db`、schema_version=1、token 64 位）。
+- 早期用 PowerShell 变量 `$home` 撞上只读变量 `$HOME`，stub 曾在 `C:\Users\<user>\` 下创建 `config/ logs/ events/ db/`；已核对创建时间与内容后按绝对路径删除。本次验证前该数据目录已由 Runtime 重新 `init`（真实 `db\fca.db`、schema_version=1、token 64 位）。
 
 ### 6.4 `/fca` 命令执行验证缺口（如实标注）
 
@@ -248,9 +251,9 @@ fca_memory_get(id:"not-a-memory-id")
 
 ```json
 { "ok": true, "initialized": true, "created": true, "already_initialized": false,
-  "data_dir": "C:\\\\Users\\\\<user>\\AppData\\Local\\FCA-Memory-Atlas",
-  "db_path": "C:\\\\Users\\\\<user>\\AppData\\Local\\FCA-Memory-Atlas\\db\\fca.db",
-  "token_path": "C:\\\\Users\\\\<user>\\AppData\\Local\\FCA-Memory-Atlas\\config\\runtime-token",
+  "data_dir": "C:\\Users\\<user>\\AppData\\Local\\FCA-Memory-Atlas",
+  "db_path": "C:\\Users\\<user>\\AppData\\Local\\FCA-Memory-Atlas\\db\\fca.db",
+  "token_path": "C:\\Users\\<user>\\AppData\\Local\\FCA-Memory-Atlas\\config\\runtime-token",
   "schema_version": 1, "event_id": "evt_56e06d36b3c515bc94f0bef353af2ac1" }
 ```
 
@@ -283,7 +286,7 @@ logs\runtime-20261112.log
 - 写入返回真实 `mem_<32 hex>` id 与 `version:1`；
 - 检索命中且带真实 `score`（hybrid：全文本 `fts5-bigram-v1` + 本地语义 `local-hash-v1`，见 `/api/v1/memory/search` 的 `engine` 字段）；
 - 读取返回真实 body、自动生成的 `belongs_to_project` 关系（`entity.created` + `relation.created` 事件同时落库）；
-- 另有一条由 Lead 真实会话写入的 `mem_141a67e43e978e5dc8399f6ca9a78a0a`（场景 C 证据），同样 `created_by={kind:"agent",id:"dsh-plugin"}`。
+- 另有一条由 Lead 真实会话写入的 `mem_<redacted>`（场景 C 证据），同样 `created_by={kind:"agent",id:"dsh-plugin"}`。
 
 ### 7.4 真实事件落库（Runtime 侧审计日志）
 
@@ -303,15 +306,15 @@ agent.event_received ×1（T17，见 §8.2）
 {"schema_version":"1.0","id":"evt_634e9dfe66d23731acc24746455f46c1","type":"memory.created",
  "ts":"2026-11-12T08:24:11.660Z","actor":{"kind":"agent","id":"dsh-plugin","display":"DSH 插件"},
  "source":{"kind":"dsh-plugin","id":"dsh-plugin-main","version":"0.1.0"},
- "subject":{"kind":"memory","id":"mem_e9fce187752fbcf65a7906c9691c38a2"},
- "payload":{"memory_id":"mem_e9fce187752fbcf65a7906c9691c38a2","title":"FCA 插件真实链路验证：DSH Agent 写入", …},
- "trace_id":"trc_bfd720bbdb7792cd7500ca7441e6eb44","client_event_id":null,"seq":7}
+ "subject":{"kind":"memory","id":"mem_<redacted>"},
+ "payload":{"memory_id":"mem_<redacted>","title":"FCA 插件真实链路验证：DSH Agent 写入", …},
+ "trace_id":"trc_<redacted>","client_event_id":null,"seq":7}
 ```
 
 ### 7.5 验证数据的清理
 
-- 测试者用 Windows PowerShell 旁路探针写入的乱码记忆 `mem_cb340f8a37fc02b2cbdda32db0a18194`（标题 `????:?? Runtime ????`，PowerShell 管道编码问题）已通过真实 API **软删除**：
-  - `DELETE /api/v1/memory/mem_cb340f8a37fc02b2cbdda32db0a18194` → `200`，返回 `version:2`、`deleted_at:"2026-11-12T08:25:34.795Z"`；
+- 测试者用 Windows PowerShell 旁路探针写入的乱码记忆 `mem_<redacted>`（标题 `????:?? Runtime ????`，PowerShell 管道编码问题）已通过真实 API **软删除**：
+  - `DELETE /api/v1/memory/mem_<redacted>` → `200`，返回 `version:2`、`deleted_at:"2026-11-12T08:25:34.795Z"`；
   - 同时产生 `memory.deleted`（`soft:true`）审计事件；
   - 复查检索 `total=2`（不再返回该条），其它记忆（`mem_141a67e4…`、`mem_e9fce187…`）保留为场景 C/T15 证据。
 - 未删除任何用户真实数据；`<FCA_HOME>` 在本次验证前是全新的（旧 stub 痕迹已随上一轮清理，不存在 `logs/stub-access.jsonl`）。
@@ -351,7 +354,7 @@ agent.event_received ×1（T17，见 §8.2）
       "ts":"2026-11-12T08:35:45.982Z","actor":{"kind":"agent","id":"agent:a9e94d45-…","display":"DSH Agent"},
       "source":{"kind":"dsh-plugin","id":"dsh-plugin","version":"0.1.0"},"subject":{"kind":"agent","id":null},
       "payload":{"dsh":{"event":"turn/end","seq":22,"session_id":"a9e94d45-…"},"turn":1,"reason":"completed"},
-      "trace_id":"trc_2adbf41782efa35bb595f059f42ff3a0",
+      "trace_id":"trc_<redacted>",
       "client_event_id":"dsh:a9e94d45-…:22:turn/end","seq":15}
      ```
      → `payload` 仅含 `dsh.event/seq/session_id` + `turn` + `reason`，**无任何消息正文**（turn-summaries 策略）；`client_event_id` 幂等键形状符合契约。
@@ -359,7 +362,7 @@ agent.event_received ×1（T17，见 §8.2）
      ```json
      {"ts":"2026-11-12T08:37:32.549Z","level":"info","msg":"http.request","kind":"access",
       "method":"POST","path":"/api/v1/event","status":201,"ms":3,
-      "trace_id":"trc_9ecb880f7365ce0c5548d05b4f5fd02a","client":"dsh-plugin","ip":"127.0.0.1",
+      "trace_id":"trc_<redacted>","client":"dsh-plugin","ip":"127.0.0.1",
       "content_length":"621","user_agent":"node"}
      ```
 - **时序观察（断线排队 + 自动拉起 + 恢复后重发，已真实验证）**：该事件在 Runtime 被另一 teammate 误 `stop` 的窗口内（08:35:13–08:35:52，`client:"cli"`，不是本插件所为）被采集 → 先入队（`received=1/queued=1/sent=0`）；插件 08:35:52 自动拉起 Runtime（`auto_start.node_source="dsh-runtime"`，pid=9984）后连接恢复，队列在下一次成功 `connect()`（08:37:32，Runtime 被再次外部关闭后由手动重启 + `fca_status` 触发）flush 成功（`sent=1`，`queued=0`）——**事件未丢失**；投递延迟的原因与修复建议见 §6.5。
@@ -377,13 +380,13 @@ agent.event_received ×1（T17，见 §8.2）
 ```json
 "auto_start": {
   "attempted": true, "started": true,
-  "node": "C:\\\\Users\\\\<user>\\AppData\\Local\\Programs\\DSH NEXT\\resources\\runtime\\x64\\primary-runtime\\dependencies\\node\\bin\\node.exe",
+  "node": "C:\\Users\\<user>\\AppData\\Local\\Programs\\DSH NEXT\\resources\\runtime\\x64\\primary-runtime\\dependencies\\node\\bin\\node.exe",
   "node_source": "dsh-runtime",
   "script": "D:\\FCA\\FCA-Memory-Atlas\\runtime\\bin\\fca-runtime.js",
   "pid": 9984, "error": null }
 ```
 
-- Runtime 自身日志佐证：`{"ts":"2026-11-12T08:35:52.918Z","level":"info","msg":"FCA Local Runtime 已启动","url":"http://127.0.0.1:17860","pid":9984,"data_dir":"C:\\\\Users\\\\<user>\\AppData\\Local\\FCA-Memory-Atlas","initialized":true}`；随后 `GET /health` → 200。
+- Runtime 自身日志佐证：`{"ts":"2026-11-12T08:35:52.918Z","level":"info","msg":"FCA Local Runtime 已启动","url":"http://127.0.0.1:17860","pid":9984,"data_dir":"C:\\Users\\<user>\\AppData\\Local\\FCA-Memory-Atlas","initialized":true}`；随后 `GET /health` → 200。
 - 即：Node 探测链修复后，插件在真实 Host 内用 DSH NEXT 2.0.22 自带 Node 成功拉起真实 Runtime；不可达期间如实报 `RUNTIME_UNREACHABLE`，不伪造连通。
 
 ## 9. 如何重跑（可复现）
@@ -419,7 +422,7 @@ agent.event_received ×1（T17，见 §8.2）
 
 - 触发：Lead 用 subagent 工具启动真实子代理会话 `5f9a9578-145c-4a5f-9433-8c3bb2039913`，其用户消息含"下周三去杭州出差，和产品团队开评审会"。
 - `fca_status.auto_memory`：`{"mode":"user-messages","enabled":true,"counters":{"seen":6,"captured":6,"stored":6,"failed":0,...}}`（6 条均为自动写入；跨会话可见）。
-- `GET /api/v1/graph`：nodes 由 1 → 7，其中自动生成节点 `mem_12bf435c7d38c7c020db77c1ea6325c1` 标题即为该消息首行；全部是真实数据库记录（可在桌面星图看到）。
+- `GET /api/v1/graph`：nodes 由 1 → 7，其中自动生成节点 `mem_<redacted>` 标题即为该消息首行；全部是真实数据库记录（可在桌面星图看到）。
 - 同批还发现：`runtime-context`、`skill-catalog`、`time-context`、`tool-jobs`、`agent-message` 等 **Host 注入的 user-role 消息被误采集**（共 5 条噪声），已定位并修复。
 
 **B. 过滤与收尾修复（v0.1.3/v0.1.4）**
@@ -427,7 +430,7 @@ agent.event_received ×1（T17，见 §8.2）
 - 修复：`src/auto-memory.js` 增加 `source.kind === 'user'` 门禁（仅真实用户消息）；`src/bridge.js` 自动拉起 Runtime 成功后立即 flush 审计事件与自动记忆队列；版本 `PLUGIN_VERSION` 0.1.4。
 - 单元测试（`node --test tests/unit/plugin/plugin-pure.test.js`）：**14/14 PASS**，新增覆盖：自动记忆标题/正文/来源/标签/类型、短消息/重复/助手消息跳过、脱敏、`all` 模式、每时限流、`off` 模式、**只采集真实用户消息（6 类 Host 注入消息全部 skippedNonText）**。
 - 已安装 v0.1.4 到 desktop profile（`plugin_manager install_bundle`：`application:"applied"`，`version:"0.1.4"`）；`fca_status` 显示 `phase=connected`、`auto_memory.mode=user-messages/enabled=true`、`runtime.reachable=true`。
-- 数据清理：v0.1.2 产生的 6 条测试/噪声自动记忆已软删除（保留 `mem_<redacted-id> · 示例偏好记忆`）。
+- 数据清理：v0.1.2 产生的 6 条测试/噪声自动记忆已软删除（保留 `mem_<redacted> · <personal-preference-memory-title（已脱敏）>`）。
 
 **C. 待 confirm（如实标注）**
 
@@ -436,3 +439,166 @@ agent.event_received ×1（T17，见 §8.2）
 ### 10.3 配置与关闭
 
 `cordis.patch.yml` 交付默认：`autoMemory: user-messages`、`autoMemoryMaxPerHour: 120`、`autoMemoryMaxChars: 2000`、`autoMemoryMemoryType: episodic`、`autoMemoryTags: [DSH自动记忆]`。把 `autoMemory` 改为 `off` 并重新安装/更新插件即可关闭自动写入。
+
+---
+
+## 11. v0.2：工作区归属 + Agent 思考节点（真实证据，2026-11-12 19:20–19:22）
+
+> 本节全部为**升级后真实 Runtime 的真实数据**（`GET /api/v1/memories` / `GET /api/v1/memory/{id}` 原始响应），原始证据文件：`artifacts/plugin/v0.2-verification.json`（Runtime 证据）、`artifacts/plugin/v0.2-install-log.json`（安装/打包/Host 日志/单测）、`artifacts/plugin/v0.2-session-replay.json`（真实会话日志回放）。没有任何手工写入或伪造记忆。
+
+### 11.1 变更内容（v0.1.4 → v0.2.0）
+
+| 能力 | 实现 |
+|---|---|
+| 工作区归属 | 新增 `src/workspace.js`：从真实 DSH `Session` 的 `session.header.cwd`（DSH NEXT 2.0.22 格式 v4 的不可变 SessionHeader）推断 cwd，回退 `session.cwd` → `session.meta.cwd` → `process.cwd()`；basename 作为标签（`D:\FCA` → `workspace:FCA`）。每条自动记忆 tags 追加 `workspace:<label>`、`source.note` 记录完整 cwd（≤160 字）、`project` = `<label> 工作区`（Runtime 自动建项目实体并生成 `belongs_to_project` 关系）。 |
+| Agent 思考节点 | 新增 `src/agent-nodes.js` + `src/auto-memory.js` 缓冲：按 `session:turn` 收集 `assistant/message` 的 reasoning/text、`tool/call`（工具名 + 脱敏参数摘要）、`tool/result`（成功/失败 + 脱敏结果摘要，按 `callId` 关联），`turn/end` 聚合为 **1 条** `procedural` 记忆（避免每工具一条）：title=`Agent 思考节点 · 第 N 回合`、body 三节`【关键推理】/【工具执行】/【结论】`、importance 0.55、tags=`Agent思考节点`+`workspace:<label>`+`DSH会话`、`source.note`=会话前缀+回合+工作区+cwd、同 session+turn 去重、空回合跳过、独立每时限流 60/h、正文上限 12000 字。 |
+| 配置 | 新增 `autoMemoryAgentNodes`（`off`/`summary`，bundle 默认 `summary`）与 7 个上限/限流参数；`config.js` 默认 `off` 保持旧配置向后兼容。 |
+| 可观测 | `fca_status.auto_memory` 新增 `workspace{last,known}`、`agentNodes{mode,enabled,tag,memoryType,title,activeTurns,limits,counters}`；`config` 段输出全部新配置。 |
+
+### 11.2 真实升级安装与加载
+
+- 交付包：`artifacts/plugin/dsh-plugin-fca-memory-0.2.0.tgz`（47,543 B，19 文件，SHA256 `FD7CD90B9074C7EE2FCB2747366345109F4851D1B312E17F3F353C78F1564A2F`）；解包目录与源码逐文件哈希一致。
+- 安装方式（不重启 DSH、不用旧模块 URL）：tgz 解包到新目录 `.cache\plugin-relink-v020\package`（`runtime` junction 指向仓库 `runtime/`，保证 `autoStartRuntime` 路径探测）→ `plugin_manager remove_bundle target=dsh-plugin-fca-memory`（`changed:true, application:"applied"`）→ `plugin_manager install_bundle target=D:\FCA\FCA-Memory-Atlas\.cache\plugin-relink-v020\package`（`changed:true, application:"applied", version:"0.2.0"`）。未出现 `restart-required`/`module-comparison`。
+- Host 日志（`<DSH_HOME>\logs\desktop-next.log`）：
+  ```
+  2026-11-12T10:20:03.739Z [info] plugin loaded {"runtimeUrl":"http://127.0.0.1:17860/","schema":"standard-schema","capturePolicy":"turn-summaries","autoMemory":"user-messages","autoMemoryAgentNodes":"summary"} [host.kernel.fca-memory-bridge]
+  ```
+- `fca_status`（升级后真实调用）：`plugin.version="0.2.0"`、`phase="connected"`、`started_at="2026-11-12T10:20:03.729Z"`、`runtime.reachable=true`、`runtime.version="0.1.0"`、`api_version="1"`、`config.autoMemoryAgentNodes="summary"`、`auto_memory.workspace.last={"label":"FCA","cwd":"D:\\FCA","source":"session.header.cwd"}`、`auto_memory.agentNodes.mode="summary"`（limits 见 §11.1）。
+
+### 11.3 真实落库证据（workspace + Agent 思考节点）
+
+**触发**：升级完成后，用真实子代理会话（teammate `dsh-plugin`，session `c3769704…`）做一次只读验证——它在该回合中调用了 `fca_status`、`pwsh`（`Get-Content …package.json | Select-String '"version"'`）、`send_message` 三个真实工具。该回合 `turn/end` 时插件自动写入 1 条聚合记忆（非手工写入、非 stub）。
+
+**Runtime 原始响应**（`GET /api/v1/memory/mem_<redacted>`）：
+
+```json
+{
+  "id": "mem_<redacted>",
+  "title": "Agent 思考节点 · 第 2 回合",
+  "memory_type": "procedural",
+  "importance": 0.55,
+  "origin": "agent",
+  "tag_names": ["Agent思考节点", "DSH会话", "workspace:FCA"],
+  "project": { "entity_id": "ent_22a399065458d8c9a9cac8addbc54f6e", "name": "FCA 工作区" },
+  "source": { "type": "agent", "ref": "dsh-plugin", "note": "Agent思考节点：DSH 会话 c3769704 第 2 回合，工作区 FCA；cwd=D:\\FCA" },
+  "created_at": "2026-11-12T10:21:43.776Z",
+  "version": 1,
+  "body_chars": 3349
+}
+```
+
+关系（自动建立，证明工作区项目实体已形成）：`{"relation_type":"belongs_to_project","from":{"kind":"memory","id":"mem_<redacted>"},"to":{"kind":"entity","id":"ent_22a399065458d8c9a9cac8addbc54f6e"},"label":"属于项目","evidence":"系统根据记忆参与者/项目自动建立"}`。
+
+**body 节选**（真实正文 3349 字，以下为节选，省略处以 `…` 标注）：
+
+```text
+【关键推理】
+A new message from memory-pipeline (another teammate). They ask for a read-only verification:
+1) Call fca_status once, confirm plugin.version=0.2.0 and auto_memory.agentNodes.mode="summary"
+…（真实推理原文，前 1500 字截断）…
+
+【工具执行】
+1. fca_status · 参数：{}
+   结果：{"ok":true,"plugin":{"name":"dsh-plugin-fca-memory","version":"0.2.0", …}[truncated]
+2. pwsh · 参数：command=Get-Content D:\FCA\FCA-Memory-Atlas\dsh_plugin\package.json | Select-String '"version"', description=Read plugin package.json version line
+   结果："version": "0.2.0",
+3. send_message · 参数：message=只读验证结果（两项均通过）：① fca_status → plugin.version="0.2.0"…[truncated]
+   结果：{"sent":true}
+
+【结论】
+只读验证完成（两项均通过），已回复 memory-pipeline：
+1) fca_status → plugin.version="0.2.0"，auto_memory.agentNodes.mode="summary"…
+2) pwsh → … 输出 "version": "0.2.0"。
+调用的两个工具：fca_status、pwsh。未调用 fca_memory_store、未修改任何文件、未继续 task-3（其已完成）。
+```
+
+**插件侧计数器**（同次 `fca_status`，真实）：`auto_memory.agentNodes.counters={"eventsSeen":96,"turnsSeen":1,"captured":1,"stored":1,"failed":0,"dropped":0,"skippedEmpty":0,"skippedDuplicate":0,"skippedRate":0,"toolCallsSeen":33,"toolResultsSeen":33}`；`auto_memory.counters={"seen":5,"captured":0,"stored":1,…, "skippedNonText":5}`（本轮 5 条 `agent-message` 类 user-role 消息全部按设计过滤，不写消息记忆）；`capture.counters={"received":1,"queued":1,"sent":1,…}`（同回合 `turn/end` 审计事件同时落库）。
+
+**复现命令**（真实 Runtime，只读）：
+
+```powershell
+$token = (Get-Content '<FCA_DATA_DIR>\config\runtime-token' -Raw).Trim()
+$h = @{ Authorization = "Bearer $token" }
+(Invoke-RestMethod 'http://127.0.0.1:17860/api/v1/memories?limit=100&sort=-created_at' -Headers $h).items |
+  Where-Object { $_.tag_names -contains 'Agent思考节点' -or $_.tag_names -contains 'workspace:FCA' }
+Invoke-RestMethod 'http://127.0.0.1:17860/api/v1/memory/mem_<redacted>' -Headers $h
+```
+
+### 11.4 用户消息的 workspace 标签（真实事件回放 + 单测；Runtime 观测点待下一次真实用户输入）
+
+升级后尚无新的**真实用户输入**（本轮所有 `user/message` 均为 teammate 转发/系统注入，按设计过滤）。该路径由两层真实证据覆盖：
+
+1. 单元测试：真实 `createAutoMemory` + 真实 session 形状 → 消息记忆 tags 含 `workspace:FCA-Memory-Atlas`、`project.name="FCA-Memory-Atlas 工作区"`、`source.note` 含完整 cwd（§11.5）。
+2. 真实会话日志回放：把真实 DSH `session.v4.jsonl`（`c5ed45ae…`、`session-d9ea76db…`，共 5133 个真实事件）逐事件喂给**交付版** `src/auto-memory.js`，消息记忆与 Agent 节点分别产出：小会话 1 条消息记忆（`tags=DSH自动记忆,DSH用户消息,workspace:FCA`）+1 条 Agent 节点；主会话 14 条消息记忆 + 9 条 Agent 节点（`workspace:FCA`/`Agent思考节点` 全部正确）。证据：`artifacts/plugin/v0.2-session-replay.json`。
+
+> 观测点限制（如实标注）：与 §10.2 C 同类——真实 Runtime 中"用户消息带 workspace:FCA"需要升级后的第一条**真实用户输入**才会出现；届时无需改代码。Agent 思考节点已由真实 `turn/end` 抢先证明工作区推断（同样的 `workspace:FCA` 标签与 `FCA 工作区` project）。
+
+### 11.5 单元测试（21/21 通过）
+
+```powershell
+D:\FCA\FCA-Memory-Atlas\tools\node.cmd --test tests\unit\plugin\plugin-pure.test.js
+# ℹ tests 21 / pass 21 / fail 0
+```
+
+新增覆盖：`resolveWorkspace` 优先级（header > cwd > meta > process.cwd()）与不抛错回退；消息记忆 `workspace:<label>`/project/cwd note；Agent 节点三节聚合 + 工具参数/结果摘要与 `callId` 关联 + 结论取"最后一段 assistant text" + `source.note`/importance/type/标签；敏感信息（推理/工具参数/结果/结论）脱敏；`autoMemoryAgentMaxToolNodes` 截断与"共 N 个仅保留前 M 个"提示；失败结果标注；同 session+turn 去重；空回合跳过；独立每时限流；`off` 模式不缓冲不写；配置默认值与非法值回退/裁剪。
+
+### 11.6 风险与回滚
+
+- **回滚**：`plugin_manager remove_bundle target=dsh-plugin-fca-memory` → `install_bundle target=D:\FCA\FCA-Memory-Atlas\.cache\plugin-relink-v014\package`（v0.1.4 目录仍在，profile 备份在 `.cache\plugin-relink-v020\backup\`）。回滚不需要重启 DSH。
+- **记忆量**：每回合 1 条 Agent 节点，`autoMemoryAgentMaxPerHour=60` 独立限流；正文 ≤12,000 字；空回合不写、同回合去重。长时间多会话并发时仍受总队列（`eventQueueLimit`）与 3 次重试上限保护。
+- **隐私**：推理/工具参数/结果/结论全部先过 `redactor`（内置 Bearer/`sk-*`/authorization/apikey-token 字段 + `redactPatterns`）再截断；日志只写会话前缀/回合/工具数/字符数，不写正文。工具参数可能包含本机路径/命令，均只写入本机 `127.0.0.1` Runtime。
+- **项目实体副作用**：每个工作区 label 会 find-or-create 一个 `<label> 工作区` project 实体并生成 `belongs_to_project` 关系；这是本需求"同一工作区归一条旋臂"的分组依据，若不需要可把 project 字段去掉（tags 仍保留 `workspace:*`）。
+- **未覆盖**：本插件无 Client/Web 半，UI 中"星云按 workspace 分组渲染"由桌面/Unity 侧消费 tags（不在本插件范围）；`/fca` 命令 UI 执行验证缺口同 §8.1。
+
+---
+
+## 11.7 v0.2.1：子会话 user-role 消息过滤 + 噪声清理（真实回归，2026-11-12 19:34–19:36）
+
+### 11.7.1 问题与根因（真实会话数据结构）
+
+v0.2.0 上线后 Runtime 里出现 3 条标题为 teammate 启动提示词的 episodic 记忆。用真实会话日志（`<DSH_HOME>\sessions\--D-FCA--\*\session.v4.jsonl.zstd`，DSH session 格式 v4）确认：
+
+| 会话 | `header.parentSession` | `header.origin` | `header.delegationDepth` | 首条 `user/message` 的 `data.source.kind` |
+|---|---|---|---|---|
+| `session-d9ea76db…`（人类根会话） | 无 | 无 | `0` | `user-approval` 等注入；真实用户消息为 `user` |
+| `c5ed45ae…`（unity-renderer teammate） | `session-d9ea76db…` | `subagent` | `1` | **`user`**（spawn prompt 正文「你是 …Unity 星云渲染…负责人」） |
+| `3c4e45fe…`（memory-pipeline teammate） | `session-d9ea76db…` | `subagent` | `1` | **`user`**（spawn prompt 正文「你是 …自动记忆管线…负责人」） |
+| `3d3bcb2a…`（desktop-integration teammate） | `session-d9ea76db…` | `subagent` | `1` | **`user`**（spawn prompt 正文「你是 …Electron ↔ Unity 集成…负责人」） |
+
+**根因**：子代理会话的 spawn prompt 由 Host 以普通 `user/message`（`source.kind = "user"`）下发；v0.2.0 只按 `source.kind` 过滤注入消息，因此把 teammate 启动提示词当成了真实用户输入。真实 DSH `SessionHeader` 校验源码（`app.asar/node_modules/@deepseek-ai/dsh-session`）确认字段为 `parentSession` / `origin`（只允许 `"subagent"`）/ `delegationDepth`。
+
+### 11.7.2 修复（v0.2.1）
+
+新增 `dsh_plugin/src/session-scope.js`：`describeSessionScope(session)` 判定会话作用域——`header.parentSession`（兼容 `parentSessionId`）存在、或 `header.delegationDepth > 0`、或 `header.origin === "subagent"` 即为 **child**；无 lineage 字段（含 fork/seeded 的人类会话）保持 **root**（绝不因形状变化吞掉真实用户消息）。`auto-memory.js` 对 user 消息只写 root 会话；child 会话的 user 消息计入新计数器 `skippedChildSession` 并 debug 日志记录原因（`parent-session`/`delegation-depth`/`origin-subagent`）。**Agent 思考节点（turn/end 聚合）对子会话保持采集**。`fca_status.auto_memory` 新增 `sessions{root,child,policy}` 与 `counters.skippedChildSession`。
+
+### 11.7.3 真实回归证据（真实子代理会话，非注入）
+
+- 升级 v0.2.1 后（新目录解包 → remove+install，未重启 DSH）启动一个**真实 workflow 子代理会话** `6d4ba096-217c-435f-84aa-204324750d18`（header：`parentSession=3c4e45fe…`、`origin=subagent`、`delegationDepth=2`），其 spawn prompt 为 `user/message seq=9`、`data.source.kind="user"`、正文以「这是 FCA 插件的子会话过滤回归探针…」开头。
+- Runtime 结果（`GET /api/v1/memories`）：**该 spawn prompt 没有产生任何 episodic 记忆**（按正文关键字检索命中数 = 0）；该子会话的 Agent 思考节点按设计仍写入（`mem_<redacted>`，procedural，tags=`Agent思考节点,DSH会话,workspace:FCA`），作为测试残留已软删除并在证据中保留完整 JSON。
+- 插件计数器（同次 `fca_status`）：`auto_memory.sessions={"root":0,"child":2,"policy":"user-messages: root human session only; agent nodes: every session"}`；`counters={"seen":5,"captured":0,"stored":1,"skippedChildSession":5,…}`；`agentNodes.counters={"eventsSeen":86,"turnsSeen":1,"captured":1,"stored":1,…}`；`capture.counters={"received":1,"sent":1,…}`。即：子会话 user 消息 5 条全部跳过、captured=0，Agent 节点照常 1 条。
+- 证据文件：`artifacts/plugin/v0.2.1-child-filter-evidence.json`（真实 session header/首条 user 消息/计数器快照/子会话 Agent 节点全文与清理记录）、`artifacts/plugin/v0.2.1-install-log.json`（打包/安装/Host 日志/单测）。
+
+### 11.7.4 3 条 teammate 提示词噪声清理（真实 Runtime 软删除）
+
+删除方式：`DELETE /api/v1/memory/{id}`（默认软删除 = 回收站，非硬删除；未使用 `hard=true`）：
+
+| memory id | 来源（真实 session） | 会话 type |
+|---|---|---|
+| `mem_<redacted>` | `3d3bcb2a…`（desktop-integration 启动提示词） | episodic |
+| `mem_<redacted>` | `3c4e45fe…`（memory-pipeline 启动提示词） | episodic |
+| `mem_<redacted>` | `c5ed45ae…`（unity-renderer 启动提示词） | episodic |
+
+验证（`artifacts/plugin/v0.2.1-cleanup-evidence.json`）：三条 `DELETE` 均 `200`；`GET /api/v1/graph` 节点数 **12 → 9**，三条均不在 graph；`GET /api/v1/memories` total **11 → 8**，默认列表不含三条；`GET /api/v1/memories?include_deleted=true` 仍可检出（回收站可恢复）。当前活跃记忆 8 条：2 条 Agent 思考节点（`mem_f700699…`、`mem_48e6e58…`）+ 5 条真实用户消息 + 1 条手工语义记忆，**无任何 teammate 提示词记忆**。
+
+### 11.7.5 已知观察（如实标注，非本插件行为）
+
+- 升级前后观察到：早于 v0.2 写入的旧自动记忆（`mem_5a0c18…` 等）的 tags 已被补上 `workspace:FCA`。该补标不是本插件代码行为（插件无历史记忆迁移逻辑），应为 Lead/其它流程另行回填；本插件只保证**新写入**记忆带 `workspace:<label>`。旧记忆无标签时渲染端归 default 旋臂的约定不变。
+- 2026-11-12 19:34:26 Runtime pid 由 14248 变为 52104（其他 teammate 操作所致，非本任务执行；数据目录/数据完整，记忆数一致）。
+
+### 11.7.6 v0.2.1 交付与验证
+
+- 交付包：`artifacts/plugin/dsh-plugin-fca-memory-0.2.1.tgz`（51,184 B，20 文件，SHA256 `ED799DC1D2F186DF862D34D42A88FAEC1CFD905C12D2BDE9EC91054537937403`）；`engines.fcaRuntime` 仍为 `>=0.1.0 <0.2.0`（与 Runtime 0.1.0 兼容）。
+- 安装：`plugin_manager remove_bundle`（`application:"applied"`）→ `install_bundle target=…\.cache\plugin-relink-v021\package`（`application:"applied", version:"0.2.1"`）；Host 日志 `2026-11-12T10:34:51.555Z plugin loaded {…,"autoMemoryAgentNodes":"summary"}`；profile 依赖 `link:…/plugin-relink-v021/package`；未重启 DSH。
+- 单测：`tools\node.cmd --test tests\unit\plugin\plugin-pure.test.js` → **24/24 PASS**（新增 session-scope 判定、子会话 user 消息过滤 + skippedChildSession、子会话 Agent 节点仍采集、根会话不受影响）。
+- 真实用户消息的 workspace 标签回归：本轮期间根会话没有新的真实用户输入；该路径的观测点仍为"用户下一条真实消息"（写入时必带 `workspace:FCA`，由 24 项单测 + 真实事件回放覆盖）。`skippedChildSession` 的真实增长已由 T20 证明子会话过滤生效。
+

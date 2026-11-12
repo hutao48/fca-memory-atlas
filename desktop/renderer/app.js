@@ -96,7 +96,7 @@ function buildInitialState() {
       view: 'atlas',
       previousView: null,
       title: 'FCA Memory Atlas',
-      version: { app: '0.1.0', electron: '—', node: '—', chrome: '—' },
+      version: { app: '0.2.0', electron: '—', node: '—', chrome: '—' },
       dataDir: '',
       logDir: '',
       isFirstRun: true,
@@ -110,6 +110,7 @@ function buildInitialState() {
       autoStartRuntime: true,
       closeRuntimeOnExit: false,
       quality: 'high',
+      nebulaEngine: 'unity',
       onboardingCompleted: false,
       devFixtures: false,
     },
@@ -351,6 +352,31 @@ const actions = {
   },
   setQuality(level) {
     setQuality(level);
+  },
+  /** 切换星云渲染引擎并持久化到 desktop settings（unity|webgl） */
+  async setNebulaEngine(next) {
+    if (next !== 'unity' && next !== 'webgl') return false;
+    const current = store.getState().settings && store.getState().settings.nebulaEngine;
+    if (bridge && bridge.app && typeof bridge.app.saveSettings === 'function') {
+      try {
+        const result = await bridge.app.saveSettings({ nebulaEngine: next });
+        if (!result || !result.ok) {
+          const errors = result && Array.isArray(result.errors) ? result.errors : [];
+          toast(errors.length ? `保存星云引擎设置失败：${errors.map((e) => e.message).join('；')}` : '保存星云引擎设置失败', { type: 'error', duration: 6000 });
+          return false;
+        }
+        applySettingsToState(result.settings);
+      } catch (error) {
+        toast(`保存星云引擎设置失败：${error.message}`, { type: 'error' });
+        return false;
+      }
+    } else {
+      store.patch({ settings: { ...(store.getState().settings || {}), nebulaEngine: next } });
+    }
+    log('info', 'nebula', '星云渲染引擎设置已更新', { from: current || null, to: next });
+    events.emit('nebula:engine-changed', { engine: next });
+    toast(next === 'unity' ? '已切换为 Unity 星云（独立窗口）' : '已切换为 WebGL 星云（内置渲染）', { type: 'info', duration: 2400 });
+    return true;
   },
   toast,
   log,
@@ -1172,7 +1198,7 @@ function renderStatusbar() {
     dom.statusFps.textContent = '';
   }
 
-  dom.statusAppVersion.textContent = `Alpha ${state.app.version.app || '0.1.0'}`;
+  dom.statusAppVersion.textContent = `Alpha ${state.app.version.app || '0.2.0'}`;
   dom.runtimePill.dataset.state = runtime.state;
   dom.runtimePillLabel.textContent = runtime.state === 'running' ? `已连接 · v${runtime.version || '?'}` : {
     stopped: '未连接',
@@ -2141,6 +2167,12 @@ function installHooks() {
     refreshGraph: () => loadGraph({ reason: 'manual' }),
     getGraph: () => store.getState().graph.data,
     getNebulaStats: () => window.__FCA_NEBULA__ && typeof window.__FCA_NEBULA__.getStats === 'function' ? window.__FCA_NEBULA__.getStats() : null,
+    getNebulaEngine: () => (store.getState().settings && store.getState().settings.nebulaEngine) || 'unity',
+    setNebulaEngine: (engine) => actions.setNebulaEngine(engine),
+    getUnityStatus: () => (window.fca && window.fca.unity ? window.fca.unity.getStatus() : null),
+    startUnity: () => (window.fca && window.fca.unity ? window.fca.unity.start({}) : null),
+    stopUnity: () => (window.fca && window.fca.unity ? window.fca.unity.stop({ reason: 'hook' }) : null),
+    getUnityLogTail: (limit) => (window.fca && window.fca.unity ? window.fca.unity.getLogTail(limit) : null),
     openOnboarding: () => openOnboardingDialog({ force: true }),
     openSettings: () => openSettings(),
     getRuntimeStatus: () => store.getState().runtime,
@@ -2216,7 +2248,7 @@ async function boot() {
   store.patch({
     app: {
       version: {
-        app: info.productVersion || '0.1.0',
+        app: info.productVersion || '0.2.0',
         electron: info.versions ? info.versions.electron : '—',
         node: info.versions ? info.versions.node : '—',
         chrome: info.versions ? info.versions.chrome : '—',

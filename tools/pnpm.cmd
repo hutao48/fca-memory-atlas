@@ -1,9 +1,9 @@
-﻿@echo off
+@echo off
 rem FCA pnpm 运行时分派：优先项目 vendor\node\node.exe + DSH 随附 pnpm，
 rem 用于插件打包等开发任务；运行时产品不依赖 pnpm。
 setlocal
 set "FCA_ROOT=%~dp0.."
-set "DSH_DEPS=C:\\Users\\<user>\AppData\Local\Programs\DSH NEXT\resources\runtime\x64\primary-runtime\dependencies"
+set "DSH_DEPS=%LOCALAPPDATA%\Programs\DSH NEXT\resources\runtime\x64\primary-runtime\dependencies"
 set "PNPM_MJS=%DSH_DEPS%\pnpm\bin\pnpm.mjs"
 if exist "%FCA_ROOT%\vendor\node\node.exe" (
   set "NODE_EXE=%FCA_ROOT%\vendor\node\node.exe"

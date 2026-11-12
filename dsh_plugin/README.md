@@ -1,9 +1,9 @@
-﻿# dsh-plugin-fca-memory — FCA Memory Atlas 的 DSH 正式插件（bundle）
+# dsh-plugin-fca-memory — FCA Memory Atlas 的 DSH 正式插件（bundle）
 
-把本机 DeepSeek Harness（DSH）接进 **FCA Memory Atlas** 的本地认知服务：给 Agent 注册记忆检索/写入工具，**把你在任意 DSH 会话里输入的消息自动写成 FCA 记忆**，把会话事件按安全策略回传 FCA Runtime，并可选地在系统提示里注入一小段记忆摘要。
+把本机 DeepSeek Harness（DSH）接进 **FCA Memory Atlas** 的本地认知服务：给 Agent 注册记忆检索/写入工具，**把你在任意 DSH 会话里输入的消息与 Agent 每回合的思考节点自动写成 FCA 记忆**并归到当前工作区的星云旋臂，把会话事件按安全策略回传 FCA Runtime，并可选地在系统提示里注入一小段记忆摘要。
 
 - 产品：FCA Alpha 0.1 · Product B
-- 插件版本：`0.1.4`
+- 插件版本：`0.2.1`
 - 形态：Cordis **bundle**（`package.json` 的 `dsh.bundle.patch` → `cordis.patch.yml` + Host 入口 `main.js` 的 `export function apply(ctx, config)`）
 - 依赖：DSH NEXT（Electron，实测 `dsh-desktop-next 2.0.22-next` / `@deepseek-ai/cordis 4.1.0` / loader `1.1.0`）+ 本机 FCA Local Runtime（`http://127.0.0.1:17860`，接口见 `docs/PUBLIC_INTERFACE_FREEZE.md`）
 - 零第三方运行时依赖：只用 `node:` 内置模块（`node:http` 不直接用，HTTP 用 Host 自带的 `fetch`）
@@ -81,7 +81,15 @@ Runtime 没起来时插件**不会假装连接成功**：`fca_status` 会显示 
 | `autoMemoryMaxChars` | integer | `2000` | 自动记忆：单条记忆正文上限 |
 | `autoMemoryMaxPerHour` | integer | `120` | 自动记忆：每小时最多写入条数（硬限流） |
 | `autoMemoryMemoryType` | enum | `episodic` | 自动记忆使用的 memory_type |
-| `autoMemoryTags` | string[] | `["DSH自动记忆"]` | 自动记忆附带的标签（另会自动追加 `DSH用户消息` / `DSH助手消息`） |
+| `autoMemoryTags` | string[] | `["DSH自动记忆"]` | 自动记忆附带的标签（另会自动追加 `DSH用户消息` / `DSH助手消息` / `workspace:<label>`） |
+| `autoMemoryAgentNodes` | enum | `off`（bundle 配置为 `summary`） | **Agent 思考节点**（v0.2）：`off` / `summary`（每回合结束聚合 1 条 procedural 记忆：关键推理 + 工具执行 + 结论） |
+| `autoMemoryAgentMaxToolNodes` | integer | `8` | Agent 思考节点：单条记忆最多渲染的工具调用条数 |
+| `autoMemoryAgentReasoningChars` | integer | `1500` | Agent 思考节点：关键推理摘要字数上限 |
+| `autoMemoryAgentConclusionChars` | integer | `800` | Agent 思考节点：结论摘要字数上限 |
+| `autoMemoryAgentToolArgChars` | integer | `400` | Agent 思考节点：单个工具参数摘要字数上限（脱敏后截断） |
+| `autoMemoryAgentToolResultChars` | integer | `600` | Agent 思考节点：单个工具结果摘要字数上限（脱敏后截断） |
+| `autoMemoryAgentMaxChars` | integer | `12000` | Agent 思考节点：聚合正文上限（需容纳推理+8 个工具节点+结论） |
+| `autoMemoryAgentMaxPerHour` | integer | `60` | Agent 思考节点：每小时最多写入条数（独立于消息记忆的限流） |
 | `redactPatterns` | string[] | `[]` | 额外脱敏正则（内置 Bearer / `sk-*` / apikey / token 字段模式之外） |
 | `injectContext` | boolean | `false` | 是否向系统提示注入记忆摘要 |
 | `maxEventBytes` | integer | `8192` | 单个事件 payload 截断上限 |
@@ -139,12 +147,39 @@ Runtime 没起来时插件**不会假装连接成功**：`fca_status` 会显示 
 
 - **跨会话**：插件监听 Host 根作用域的 `session/event`，所有会话（包括之后新建的会话）都生效。
 - **只收真实用户消息**：按 `user/message.data.source.kind === "user"` 过滤。Host 注入的 user-role 消息（runtime-context、skill-catalog、time-context、后台任务通知、Agent 消息转发、审批通知等）**不会**变成记忆。
-- **生成内容**：`title`=消息首行（≤80 字）、`body`=脱敏后正文（≤`autoMemoryMaxChars`）、`memory_type`=`autoMemoryMemoryType`、`tags`=`autoMemoryTags`+角色标签、`source.note` 记录 DSH 会话 id 前缀与 seq、`origin=agent`；每条都有版本历史，可在桌面软件编辑/删除。
+- **只采人类根会话（v0.2.1）**：subagent/teammate 子会话的 spawn prompt 也是 `user/message` 且 `source.kind === "user"`（真实实测），但它们不是用户输入。插件按真实 `SessionHeader` 判定会话作用域——`parentSession`/`parentSessionId` 存在、`delegationDepth > 0` 或 `origin === "subagent"` 视为子会话，其 user 消息只计入 `auto_memory.counters.skippedChildSession`，不写记忆；人类根会话（无上述字段、`delegationDepth: 0`，如真实主会话 `session-…`）的真实用户消息不受影响，仍正常带 `workspace:<label>` 写入。**Agent 思考节点（turn/end 聚合）对子会话照常采集**（团队协作过程本身就是有价值的 Agent 过程记忆）。
+- **工作区归属（v0.2）**：从真实 DSH `Session` 的 `session.header.cwd`（不可变 header，实测 DSH NEXT 2.0.22 格式 v4）推断工作区，回退 `session.cwd` / `session.meta.cwd`，最后回退 `process.cwd()`；取 basename 作为标签（如 `D:\FCA` → `workspace:FCA`）。`source.note` 记录完整 cwd（≤160 字符），`project` 设为 `<label> 工作区`（Runtime 自动 find-or-create 项目实体，星图/Unity 按 `workspace:*` 标签分组即得"一条旋臂"）。
+- **生成内容**：`title`=消息首行（≤80 字）、`body`=脱敏后正文（≤`autoMemoryMaxChars`）、`memory_type`=`autoMemoryMemoryType`、`tags`=`autoMemoryTags`+角色标签+`workspace:<label>`、`source.note` 记录 DSH 会话 id 前缀、seq、工作区 label 与 cwd、`origin=agent`；每条都有版本历史，可在桌面软件编辑/删除。
 - **安全与有界**：复用同一套密钥/令牌脱敏；队列有界、每时硬限流（`autoMemoryMaxPerHour`）、按 `session:seq:role` 与正文哈希去重；Runtime 离线时排队，恢复后重试（最多 3 次，超限丢弃并计数）。记忆只写入本机 `127.0.0.1` 的 FCA Runtime。
-- **状态**：`fca_status.auto_memory` 返回 `mode/enabled/counters{seen,captured,stored,failed,dropped,skippedShort,skippedDuplicate,skippedRate,skippedNonText}` 与 limits，便于核对是否在工作。
+- **状态**：`fca_status.auto_memory` 返回 `mode/enabled/workspace{last,known}/sessions{root,child,policy}/counters{seen,captured,stored,failed,dropped,skippedShort,skippedDuplicate,skippedRate,skippedNonText,skippedChildSession}` 与 limits，便于核对是否在工作。
 - **关闭**：把 `autoMemory` 设为 `off`（重装/更新插件配置后生效）。
 
-已知边界：`autoMemory` 只写入"消息原文"级别的事实，不做 LLM 摘要/抽取；超长消息截断；重复内容 1 小时内只记一次；`user-messages` 模式不采集助手回复（需要时设 `all`）。
+已知边界：`autoMemory` 只写入"消息原文"级别的事实，不做 LLM 摘要/抽取；超长消息截断；重复内容 1 小时内只记一次；`user-messages` 模式不采集助手回复（需要时设 `all`）；只采人类根会话的 user 消息（子会话 spawn prompt 不写，v0.2.1）。
+
+### 5.2 Agent 思考节点（v0.2，用户选择"更全"）
+
+用户要求自动记忆**不只包含用户输入，还要包含 Agent 思考过程中的重要节点**（推理 + 工具调用要点 + 工具结果摘要）。实现方式：在内存里按 `session:turn` 缓冲一回合内的事件，`turn/end` 时聚合为 **1 条** `procedural` 记忆（避免每次工具调用都写一条淹没星图）：
+
+| 事件（真实 DSH 事件形状） | 提取内容 |
+|---|---|
+| `assistant/message`（`data.message.content[]` 的 `reasoning` / `text` 块） | 关键推理（该回合前段，≤`autoMemoryAgentReasoningChars`）与最后一段可见文本（结论，≤`autoMemoryAgentConclusionChars`） |
+| `tool/call`（`data.name` + `data.arguments` JSON 字符串） | 工具名 + 脱敏后的参数摘要（`key=value` 紧凑格式，≤`autoMemoryAgentToolArgChars`） |
+| `tool/result`（`data.message.content[]` + `isError` + `toolCallId`） | 状态（成功/失败）+ 脱敏后的结果摘要（≤`autoMemoryAgentToolResultChars`），按 `callId` 关联回对应工具 |
+| `turn/end` | 生成聚合并入队 |
+
+生成的记忆：
+
+- `title` = `Agent 思考节点 · 第 N 回合`；`memory_type` = `procedural`；`importance` = `0.55`；
+- `body` 固定三节：`【关键推理】`（无内容时给真实占位）/`【工具执行】`（最多 `autoMemoryAgentMaxToolNodes` 条，每条 名称+参数摘要+结果摘要；超过时注明"共 N 个，正文仅保留前 M 个"）/`【结论】`；
+- `tags` = `["Agent思考节点", "workspace:<label>", "DSH会话"]`；`project` = `<label> 工作区`；
+- `source.note` = `Agent思考节点：DSH 会话 <id 前缀8> 第 N 回合，工作区 <label>；cwd=<完整路径 ≤160 字>`；`origin=agent`；
+- **同一 session+turn 只写一次**（`turn/end` 重复/重放去重）；**只要有实际内容才写**（空回合跳过）；独立每时限流 `autoMemoryAgentMaxPerHour`；正文上限 `autoMemoryAgentMaxChars`；
+- 工具参数/结果/推理/结论全部先经同一 `redactor` 脱敏再截断，敏感内容不会进记忆；日志只记录会话前缀/回合/工具数/字符数。
+
+`fca_status.auto_memory.agentNodes` 返回 `mode/enabled/tag/memoryType/title/activeTurns/limits/counters{eventsSeen,turnsSeen,captured,stored,failed,dropped,skippedEmpty,skippedDuplicate,skippedRate,toolCallsSeen,toolResultsSeen}`，可直接核对采集是否在工作。
+
+> 说明：`autoMemoryAgentNodes` 在 `config.js` 中默认 `off`（向后兼容旧配置），交付 bundle 的 `cordis.patch.yml` 默认 `summary`——安装本 bundle 即开启；若只想保留消息记忆，把该项改为 `off`。
+
 
 ## 6. 系统提示注入（默认关）
 
@@ -183,7 +218,7 @@ tools\pnpm.cmd --dir dsh_plugin pack --pack-destination D:\FCA\FCA-Memory-Atlas\
 # 说明：--dir dsh_plugin 会让相对 destination 解析到 dsh_plugin 下，故用绝对路径；
 # 也可用 DSH 自带 node + pnpm.mjs 执行等价命令（2026-11-12 复测使用，不依赖批处理包装）：
 # & '<DSH 安装>\resources\runtime\x64\primary-runtime\dependencies\node\bin\node.exe' '<DSH 安装>\resources\runtime\x64\primary-runtime\dependencies\pnpm\bin\pnpm.mjs' --dir dsh_plugin pack --pack-destination D:\FCA\FCA-Memory-Atlas\artifacts\plugin
-# 产物：artifacts\plugin\dsh-plugin-fca-memory-0.1.3.tgz
+# 产物：artifacts\plugin\dsh-plugin-fca-memory-0.2.1.tgz
 ```
 
 
@@ -204,10 +239,10 @@ tools\pnpm.cmd --dir dsh_plugin pack --pack-destination D:\FCA\FCA-Memory-Atlas\
 2. **link: 安装的插件不能在运行中热替换代码**（DSH HMR `module-comparison` 限制）；升级需按 §7 或重启。
 3. **`/fca` 命令已注册，但命令执行只能由 UI 触发**，本插件未附带 Client/Web 半，不提供可视化面板。
 4. **不订阅 Runtime 的 SSE**：`/events/stream` 未使用（单向审计推送足够；桌面端负责可视化增量同步）。
-5. **不捕获工具参数**（可能含密钥），`full` 策略也只记工具名与错误码。
+5. **审计采集不捕获工具参数与结果**（可能含密钥），`full` 策略也只记工具名与错误码。**自动记忆**（v0.2 Agent 思考节点）会在脱敏+截断后把工具参数/结果摘要写入本地 FCA 记忆库（同样只在本机）；审计事件流与自动记忆是两条独立通道。
 6. 插件异常一律隔离在插件内部；如果 Runtime 长时间不可用，队列会按上限丢弃并计数，不会无限增长。
 7. **采集队列在“运行时恢复”后的 flush 时机（v0.1.3 已修复）**：`turn/end` 若在 Runtime 停机窗口内被采集，会先入队（不丢）；v0.1.3 起插件自动拉起 Runtime 成功后会立即 flush 审计事件与自动记忆队列，无需等下一次健康轮询。详见 `docs/PLUGIN_INTEGRATION_TEST.md` §6.5。
-8. **自动记忆的边界**：只保存消息原文（不做 LLM 摘要/事实抽取），超过 `autoMemoryMaxChars` 截断；短消息、重复内容、Host 注入消息不保存；每小时有硬限流；消息内敏感内容会被脱敏后仍然写入本地记忆库（只在本机）。不想保存时把 `autoMemory` 设为 `off`。
+8. **自动记忆的边界**：消息记忆只保存消息原文（不做 LLM 摘要/事实抽取），超过 `autoMemoryMaxChars` 截断；Agent 思考节点是**规则聚合摘要**（非 LLM 总结）：推理/结论截取前段固定字数、工具节点最多 8 条、正文上限 `autoMemoryAgentMaxChars`，超出会截断；短消息、重复内容、Host 注入消息不保存；**只采人类根会话的 user 消息（子会话 spawn prompt 不写，v0.2.1）**；每小时有硬限流（消息与 Agent 节点各自独立）；消息/推理/工具摘要内敏感内容会被脱敏后仍然写入本地记忆库（只在本机）。不想保存时把 `autoMemory` 设为 `off`（同时关闭 Agent 节点）或把 `autoMemoryAgentNodes` 设为 `off`（只关思考节点）。
 9. **自动记忆只新增、不修改已有记忆**：自动流程不会改写/删除旧记忆（避免误覆盖）；修正/删除请在桌面软件里做，或通过 Runtime API 的 PATCH/DELETE。
 10. **从解包目录安装时的自动拉起路径**：`autoStartRuntime` 默认找 `<插件包>/../runtime/bin/fca-runtime.js`；若插件包不在 Runtime 相邻目录，请设置 `runtimeScriptPath`（本机验收用 junction 让该路径可用）。
 

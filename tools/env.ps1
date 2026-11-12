@@ -1,8 +1,8 @@
-﻿# FCA 开发环境变量（PowerShell）：. .\tools\env.ps1
+# FCA 开发环境变量（PowerShell）：. .\tools\env.ps1
 # 定位 Node 24 / pnpm。优先项目 vendor\node\node.exe（可复现），其次 DSH 随附运行时。
 $fcaRoot = Split-Path $PSScriptRoot -Parent
 $vendorNode = Join-Path $fcaRoot 'vendor\node\node.exe'
-$dshDeps = 'C:\\Users\\<user>\AppData\Local\Programs\DSH NEXT\resources\runtime\x64\primary-runtime\dependencies'
+$dshDeps = Join-Path $env:LOCALAPPDATA 'Programs\DSH NEXT\resources\runtime\x64\primary-runtime\dependencies'
 $dshNode = Join-Path $dshDeps 'node\bin\node.exe'
 
 if (Test-Path $vendorNode) {

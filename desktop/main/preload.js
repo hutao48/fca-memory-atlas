@@ -58,6 +58,19 @@ const bridge = {
     onLog: (handler) => subscribe('fca:runtime:log')(handler),
   },
 
+  // Unity 星云（默认内嵌 WebGL：本地静态服务 + atlas 视图 iframe；token 只通过 iframe URL 传递，不进 renderer 日志）
+  unity: {
+    getStatus: () => invoke('fca:unity:status'),
+    start: (options) => invoke('fca:unity:start', options || {}),
+    stop: (options) => invoke('fca:unity:stop', options || {}),
+    getLogTail: (limit) => invoke('fca:unity:log-tail', { limit }),
+    onStatus: (handler) => subscribe('fca:unity:status')(handler),
+    onCrash: (handler) => subscribe('fca:unity:crash')(handler),
+    // 兼容旧 standalone 开发开关
+    open: (options) => invoke('fca:unity:open', options || {}),
+    close: (options) => invoke('fca:unity:close', options || {}),
+  },
+
   net: {
     request: (payload) => invoke('fca:net:request', payload),
     streamStart: (options) => invoke('fca:net:stream:start', options || {}),
