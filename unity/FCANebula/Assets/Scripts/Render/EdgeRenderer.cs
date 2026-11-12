@@ -36,10 +36,20 @@ namespace FCANebula
         Material _material;
 
         readonly List<HierarchyLink> _hierarchyLinks = new List<HierarchyLink>();
+        readonly HashSet<string> _expectedChainPairs = new HashSet<string>(System.StringComparer.Ordinal);
+        readonly HashSet<string> _handledChainPairs = new HashSet<string>(System.StringComparer.Ordinal);
 
         public int EdgeCount { get; private set; }
         public int CrossArmEdgeCount { get; private set; }
         public int HierarchyLinkCount { get; private set; }
+        // task-19: chain links + relation coverage diagnostics
+        public int ChainLinkCount { get; private set; }
+        public int ChainPairsExpected { get; private set; }
+        public int ChainPairsMissing { get; private set; }
+        public int RelatedPairs { get; private set; }
+        public int RelatedPairsMissingEdges { get; private set; }
+        public string HighlightedChainKey { get { return _highlightedChainKey; } }
+        string _highlightedChainKey = "";
 
         public void Initialize(AppConfig config, Camera camera)
         {
@@ -120,6 +130,15 @@ namespace FCANebula
             Rebuild();
         }
 
+        /// <summary>Highlight one chain: its chain links brighten / pulse (task-19).</summary>
+        public void SetHighlightedChain(string chainKey)
+        {
+            string key = chainKey ?? "";
+            if (string.Equals(_highlightedChainKey, key, System.StringComparison.Ordinal)) return;
+            _highlightedChainKey = key;
+            Rebuild();
+        }
+
         public void Rebuild()
         {
             if (!_initialized || _mesh == null) return;
@@ -127,6 +146,12 @@ namespace FCANebula
             EdgeCount = 0;
             CrossArmEdgeCount = 0;
             HierarchyLinkCount = 0;
+            ChainLinkCount = 0;
+            ChainPairsExpected = 0;
+            ChainPairsMissing = 0;
+            RelatedPairs = 0;
+            RelatedPairsMissingEdges = 0;
+            _handledChainPairs.Clear();
             if (_layout == null)
             {
                 if (_meshRenderer != null) _meshRenderer.enabled = false;
@@ -140,6 +165,10 @@ namespace FCANebula
             List<int> triangles = new List<int>(8192);
             List<Vector3> path = new List<Vector3>(32);
 
+            BuildExpectedChainPairs();
+            Color chainColor = ChainColor(false);
+            Color chainColorHot = ChainColor(true);
+
             if (_graph != null)
             {
                 for (int e = 0; e < _graph.Edges.Count; e++)
@@ -147,12 +176,41 @@ namespace FCANebula
                     GraphEdge edge = _graph.Edges[e];
                     LayoutNode from;
                     LayoutNode to;
-                    if (!_layout.ById.TryGetValue(edge.From, out from) || !_layout.ById.TryGetValue(edge.To, out to)) continue;
-                    if (!IsRenderable(from) || !IsRenderable(to)) continue;
-                    RelationStyle style = ThemePalette.Relation(edge.RelationType);
-                    Color styleColor = ThemePalette.ToShader(style.Color);
-                    float opacity = Mathf.Clamp(0.20f + 0.30f * edge.Confidence + 0.10f * Mathf.Clamp01(edge.Weight * 0.5f), 0.12f, 0.55f);
-                    float width = Mathf.Max(0.6f, style.Width * 1.7f) * (0.85f + 0.2f * Mathf.Clamp01(edge.Weight * 0.5f));
+                    bool hasFrom = _layout.ById.TryGetValue(edge.From, out from);
+                    bool hasTo = _layout.ById.TryGetValue(edge.To, out to);
+                    bool memoryPair = hasFrom && hasTo && !from.IsEntity && !to.IsEntity;
+                    if (memoryPair) RelatedPairs++;
+                    if (!hasFrom || !hasTo || !IsRenderable(from) || !IsRenderable(to))
+                    {
+                        if (memoryPair) RelatedPairsMissingEdges++;
+                        continue;
+                    }
+                    bool chainPair = from.ChainSize > 1 && string.Equals(from.ChainKey, to.ChainKey, System.StringComparison.Ordinal);
+                    bool hotChain = chainPair && !string.IsNullOrEmpty(_highlightedChainKey)
+                        && string.Equals(from.ChainKey, _highlightedChainKey, System.StringComparison.Ordinal);
+                    string pairKey = PairKey(from.Id, to.Id);
+                    if (chainPair && _expectedChainPairs.Contains(pairKey)) _handledChainPairs.Add(pairKey);
+
+                    RelationStyle style;
+                    Color styleColor;
+                    float opacity;
+                    float width;
+                    if (chainPair)
+                    {
+                        // Reuse an existing runtime relation edge as the chain link instead of
+                        // drawing a duplicate line; chain style is warm gold / warm white.
+                        style = ChainStyle(hotChain);
+                        styleColor = hotChain ? chainColorHot : chainColor;
+                        opacity = ChainOpacity(hotChain);
+                        width = ChainWidth(hotChain);
+                    }
+                    else
+                    {
+                        style = ThemePalette.Relation(edge.RelationType);
+                        styleColor = ThemePalette.ToShader(style.Color);
+                        opacity = Mathf.Clamp(0.20f + 0.30f * edge.Confidence + 0.10f * Mathf.Clamp01(edge.Weight * 0.5f), 0.12f, 0.55f);
+                        width = Mathf.Max(0.6f, style.Width * 1.7f) * (0.85f + 0.2f * Mathf.Clamp01(edge.Weight * 0.5f));
+                    }
 
                     path.Clear();
                     bool crossArm = from.ArmIndex != to.ArmIndex;
@@ -189,10 +247,27 @@ namespace FCANebula
                     if (!_layout.ById.TryGetValue(link.ParentId, out parent) || !_layout.ById.TryGetValue(link.ChildId, out child)) continue;
                     if (!IsRenderable(parent) || !IsRenderable(child)) continue;
                     BuildHierarchyPath(parent, child, path);
-                    AddRibbonPath(vertices, colors, uvs, uvs2, triangles, path, gold, 0.75f, 1.9f, linkStyle);
+                    bool chainPair = parent.ChainSize > 1 && string.Equals(parent.ChainKey, child.ChainKey, System.StringComparison.Ordinal);
+                    bool hotChain = chainPair && !string.IsNullOrEmpty(_highlightedChainKey)
+                        && string.Equals(parent.ChainKey, _highlightedChainKey, System.StringComparison.Ordinal);
+                    if (chainPair && _expectedChainPairs.Contains(PairKey(parent.Id, child.Id)))
+                    {
+                        // Expanded parent -> child: this visible hierarchy filament doubles as the
+                        // chain link for that pair (task-19 requirement).
+                        _handledChainPairs.Add(PairKey(parent.Id, child.Id));
+                    }
+                    float hierarchyOpacity = hotChain ? 1.0f : 0.75f;
+                    AddRibbonPath(vertices, colors, uvs, uvs2, triangles, path, gold, hierarchyOpacity, hotChain ? 2.4f : 1.9f, linkStyle);
                     HierarchyLinkCount++;
                 }
             }
+
+            // Chain links: consecutive visible chain members along the (frozen) arm centre line.
+            DrawChainLinks(vertices, colors, uvs, uvs2, triangles, path, chainColor, chainColorHot);
+
+            ChainPairsExpected = _expectedChainPairs.Count;
+            ChainLinkCount = _handledChainPairs.Count;
+            ChainPairsMissing = Mathf.Max(0, ChainPairsExpected - ChainLinkCount);
 
             if (vertices.Count == 0)
             {
@@ -207,6 +282,106 @@ namespace FCANebula
             _mesh.RecalculateBounds();
             _mesh.bounds = new Bounds(Vector3.zero, Vector3.one * 100000f);
             if (_meshRenderer != null) _meshRenderer.enabled = true;
+        }
+
+        // -------------------------------------------------------------
+        // task-19: chain links + relation coverage
+        // -------------------------------------------------------------
+
+        void BuildExpectedChainPairs()
+        {
+            _expectedChainPairs.Clear();
+            if (_layout == null) return;
+            foreach (KeyValuePair<string, List<string>> pair in _layout.ChainNodeIds)
+            {
+                if (pair.Value.Count < 2) continue;
+                List<LayoutNode> visible = new List<LayoutNode>(pair.Value.Count);
+                for (int i = 0; i < pair.Value.Count; i++)
+                {
+                    LayoutNode node;
+                    if (_layout.ById.TryGetValue(pair.Value[i], out node) && IsRenderable(node)) visible.Add(node);
+                }
+                if (visible.Count < 2) continue;
+                visible.Sort(delegate (LayoutNode a, LayoutNode b)
+                {
+                    if (a.ArmIndex != b.ArmIndex) return a.ArmIndex.CompareTo(b.ArmIndex);
+                    if (Mathf.Abs(a.AlongArm - b.AlongArm) > 0.0001f) return a.AlongArm.CompareTo(b.AlongArm);
+                    return string.CompareOrdinal(a.Id, b.Id);
+                });
+                for (int i = 0; i < visible.Count - 1; i++) _expectedChainPairs.Add(PairKey(visible[i].Id, visible[i + 1].Id));
+            }
+        }
+
+        void DrawChainLinks(List<Vector3> vertices, List<Color> colors, List<Vector2> uvs, List<Vector2> uvs2,
+            List<int> triangles, List<Vector3> path, Color chainColor, Color chainColorHot)
+        {
+            if (_layout == null) return;
+            foreach (KeyValuePair<string, List<string>> pair in _layout.ChainNodeIds)
+            {
+                if (pair.Value.Count < 2) continue;
+                List<LayoutNode> visible = new List<LayoutNode>(pair.Value.Count);
+                for (int i = 0; i < pair.Value.Count; i++)
+                {
+                    LayoutNode node;
+                    if (_layout.ById.TryGetValue(pair.Value[i], out node) && IsRenderable(node)) visible.Add(node);
+                }
+                if (visible.Count < 2) continue;
+                visible.Sort(delegate (LayoutNode a, LayoutNode b)
+                {
+                    if (a.ArmIndex != b.ArmIndex) return a.ArmIndex.CompareTo(b.ArmIndex);
+                    if (Mathf.Abs(a.AlongArm - b.AlongArm) > 0.0001f) return a.AlongArm.CompareTo(b.AlongArm);
+                    return string.CompareOrdinal(a.Id, b.Id);
+                });
+                bool hotChain = !string.IsNullOrEmpty(_highlightedChainKey)
+                    && string.Equals(pair.Key, _highlightedChainKey, System.StringComparison.Ordinal);
+                for (int i = 0; i < visible.Count - 1; i++)
+                {
+                    LayoutNode from = visible[i];
+                    LayoutNode to = visible[i + 1];
+                    string pairKey = PairKey(from.Id, to.Id);
+                    if (!_expectedChainPairs.Contains(pairKey)) continue;
+                    if (_handledChainPairs.Contains(pairKey)) continue;
+                    if (from.ArmIndex != to.ArmIndex) continue; // chains are same-arm by construction
+                    if (from.ArmIndex < 0 || from.ArmIndex >= _layout.Arms.Count) continue;
+                    bool hot = hotChain;
+                    BuildSameArmPath(_layout.Arms[from.ArmIndex], from, to, path);
+                    AddRibbonPath(vertices, colors, uvs, uvs2, triangles, path, hot ? chainColorHot : chainColor,
+                        ChainOpacity(hot), ChainWidth(hot), ChainStyle(hot));
+                    _handledChainPairs.Add(pairKey);
+                }
+            }
+        }
+
+        static string PairKey(string a, string b)
+        {
+            return string.CompareOrdinal(a, b) <= 0 ? a + "|" + b : b + "|" + a;
+        }
+
+        static RelationStyle ChainStyle(bool hot)
+        {
+            RelationStyle style = ThemePalette.Relation("custom");
+            style.Dash = 0f;
+            style.Flow = hot ? 1.15f : 0.42f;
+            style.Width = hot ? 1.6f : 0.9f;
+            return style;
+        }
+
+        static Color ChainColor(bool hot)
+        {
+            Color gold = ThemePalette.ToShader(ThemePalette.HierarchyGoldSrgb());
+            Color warmWhite = new Color(1f, 0.93f, 0.78f);
+            Color baseColor = Color.Lerp(gold, warmWhite, 0.45f);
+            return hot ? Color.Lerp(baseColor, Color.white, 0.25f) : baseColor;
+        }
+
+        static float ChainOpacity(bool hot)
+        {
+            return hot ? 0.92f : 0.42f;
+        }
+
+        static float ChainWidth(bool hot)
+        {
+            return hot ? 2.4f : 1.35f;
         }
 
         static bool IsRenderable(LayoutNode node)

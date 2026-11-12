@@ -94,6 +94,8 @@ const criticalPayloadFiles = [
   'docs/FINAL_ACCEPTANCE.md',
   'BUILD_INFO.json',
   'LICENSE',
+  'LICENSE-THIRD-PARTY.txt',
+  'LICENSES.chromium.html',
 ];
 
 function log(msg) {
@@ -352,15 +354,34 @@ copyDocs(join(payload, 'resources', 'docs'));
 for (const doc of ['README.md', 'CHANGELOG.md']) {
   if (existsSync(join(PROJECT_ROOT, doc))) cpSync(join(PROJECT_ROOT, doc), join(payload, doc));
 }
-// LICENSE：优先项目根 LICENSE，其次 installer/LICENSE.txt（随包许可证说明），都没有则写占位（仅 --allow-incomplete）
-const licenseSrc = [join(PROJECT_ROOT, 'LICENSE'), join(PROJECT_ROOT, 'installer', 'LICENSE.txt')].find((p) => isFile(p));
-if (licenseSrc) {
-  cpSync(licenseSrc, join(payload, 'LICENSE'));
+// LICENSE：payload/LICENSE = 本产品许可（源码可见·非商用·禁止二次修改分发）；
+// 第三方组件许可（Electron/Chromium/Node.js/Unity 等）单独放 LICENSE-THIRD-PARTY.txt + LICENSES.chromium.html。
+const productLicenseSrc = [join(PROJECT_ROOT, 'LICENSE'), join(PROJECT_ROOT, 'installer', 'LICENSE.txt')].find((p) => isFile(p));
+if (productLicenseSrc) {
+  cpSync(productLicenseSrc, join(payload, 'LICENSE'));
 } else if (ALLOW_INCOMPLETE) {
-  writeFileSync(join(payload, 'LICENSE'), 'FCA Memory Atlas Alpha 0.1 — internal alpha build. See docs/ for details.\n');
+  writeFileSync(join(payload, 'LICENSE'), 'FCA Memory Atlas — see LICENSE-THIRD-PARTY.txt and docs/ for details.\n');
 } else {
   fail('missing license file: expected LICENSE or installer/LICENSE.txt');
 }
+const electronLicenseSrc = join(electronDist, 'LICENSE');
+const thirdPartyParts = [];
+if (isFile(electronLicenseSrc)) {
+  thirdPartyParts.push('==== Electron (MIT) ====', readFileSync(electronLicenseSrc, 'utf8').trim());
+}
+thirdPartyParts.push(
+  '==== Node.js (MIT) ====',
+  'Bundled Node.js runtime (node/node.exe) is licensed under the MIT license. See https://nodejs.org/en/about/previous-releases',
+  '',
+  '==== Unity Engine / URP / Noto Sans SC (third-party) ====',
+  'The bundled Unity WebGL renderer (unity/FCANebulaWebGL) is built with Unity 6 + URP and includes the Noto Sans SC font.',
+  'Unity Engine and URP are subject to the Unity Terms of Service / Unity License (https://unity.com/legal).',
+  'Noto Sans SC is licensed under the SIL Open Font License 1.1.',
+  '',
+  '==== Chromium / third-party open-source notices ====',
+  'See LICENSES.chromium.html in this directory for Chromium/Electron bundled third-party notices.',
+);
+writeFileSync(join(payload, 'LICENSE-THIRD-PARTY.txt'), thirdPartyParts.join('\r\n') + '\r\n');
 
 // 空白数据模板（存在且非空时随包分发）
 const dataTemplate = join(PROJECT_ROOT, 'data_template');
@@ -492,6 +513,13 @@ const buildInfo = {
     licenses_chromium_kept: true,
     note: 'LICENSES.chromium.html kept for Chromium/Electron license compliance',
   },
+  license: {
+    product: 'LICENSE',
+    product_type: 'Source-Available (Non-Commercial, No Redistribution of Modifications)',
+    third_party: 'LICENSE-THIRD-PARTY.txt',
+    chromium_notices: 'LICENSES.chromium.html',
+    note: 'v0.4.0 起为源码可见许可（非商用·禁止二次修改分发）；v0.4.0 之前版本适用其发布时的 MIT。第三方组件各自许可见 LICENSE-THIRD-PARTY.txt。',
+  },
   checks: {},
 };
 writeFileSync(join(payload, 'BUILD_INFO.json'), `${JSON.stringify(buildInfo, null, 2)}\n`);
@@ -530,6 +558,16 @@ buildInfo.payload = {
   dsh_plugin_files: pluginStats.files || 0,
   dsh_plugin_bytes: pluginStats.bytes || 0,
 };
+// v0.4.0 Unity 6 + URP WebGL 构建信息断言（读取 payload 内 fca-webgl-build-info.json）
+const unityInfoPath = join(payload, 'unity', 'FCANebulaWebGL', 'fca-webgl-build-info.json');
+let unityBuildInfo = null;
+let unityBuildInfoRaw = '';
+if (isFile(unityInfoPath)) {
+  unityBuildInfoRaw = fileText(unityInfoPath);
+  try { unityBuildInfo = JSON.parse(unityBuildInfoRaw); } catch { unityBuildInfo = null; }
+}
+const unityFeatures = unityBuildInfo && Array.isArray(unityBuildInfo.features) ? unityBuildInfo.features.map(String) : [];
+const unityVersionStr = unityBuildInfo ? String(unityBuildInfo.unity_version || '') : '';
 buildInfo.checks = {
   critical_files: criticalChecks,
   desktop_renderer_views_present: isFile(join(appDir, 'renderer', 'views', 'atlas.js')),
@@ -555,8 +593,29 @@ buildInfo.checks = {
     hasText(join(appDir, 'renderer', 'index.html'), 'btn-toggle-right'),
   ui_relation_detail_marker: hasText(join(appDir, 'renderer', 'views', 'relations.js'), 'relation-detail'),
   ui_hierarchy_detail_marker: hasText(join(appDir, 'renderer', 'lib', 'detail-panel.js'), 'detail__hierarchy'),
-  ui_unity_select_bridge_marker: hasText(join(appDir, 'renderer', 'lib', 'unity-selection.js'), 'fca-unity-select'),
+  ui_unity_select_bridge_marker: hasText(join(appDir, 'renderer', 'lib', 'unity-selection.js'), 'fca-unity-select'),  // v0.4.0 许可证断言：产品 LICENSE 为源码可见/非商用（非 MIT），第三方许可随包
+  product_license_present: isFile(join(payload, 'LICENSE')),
+  product_license_noncommercial:
+    hasText(join(payload, 'LICENSE'), '非商用') &&
+    (hasText(join(payload, 'LICENSE'), '禁止二次修改分发') || hasText(join(payload, 'LICENSE'), 'No Redistribution')),
+  product_license_not_mit: !/^\s*MIT License/i.test(fileText(join(payload, 'LICENSE'))),
+  third_party_license_present: isFile(join(payload, 'LICENSE-THIRD-PARTY.txt')) && hasText(join(payload, 'LICENSE-THIRD-PARTY.txt'), 'MIT'),
+  chromium_notices_present: isFile(join(payload, 'LICENSES.chromium.html')),  // v0.4.0 Unity 6 + URP WebGL：构建信息/版本/链与高亮标记
+  unity_build_info_present: isFile(unityInfoPath),
+  unity_version: unityVersionStr || null,
+  unity_is_unity6: /^6000\./.test(unityVersionStr),
+  unity_urp_marker: /urp/i.test(unityBuildInfoRaw) || unityFeatures.some((f) => /urp/i.test(f)),
+  unity_chain_links_marker: /(chain[-_]?links|chainlinks)/i.test(unityBuildInfoRaw) || unityFeatures.some((f) => /chain[-_]?links/i.test(f)),
+  unity_chain_highlight_marker: /(chain[-_]?highlight|highlight)/i.test(unityBuildInfoRaw) || unityFeatures.some((f) => /highlight/i.test(f)),
+  unity_build_errors_zero: !!(unityBuildInfo && Number(unityBuildInfo.total_errors) === 0),
 };
+buildInfo.unity_build = unityBuildInfo ? {
+  unity_version: unityVersionStr,
+  built_at_utc: unityBuildInfo.built_at_utc || null,
+  total_bytes: unityBuildInfo.total_bytes || null,
+  total_errors: unityBuildInfo.total_errors ?? null,
+  features: unityFeatures,
+} : null;
 writeFileSync(join(payload, 'BUILD_INFO.json'), `${JSON.stringify(buildInfo, null, 2)}\n`);
 
 if (missingCritical.length) {

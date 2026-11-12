@@ -53,6 +53,10 @@ namespace FCANebula
         public readonly List<string> ChildIds = new List<string>();
         public bool IsExpanded;
 
+        // additive chain layer (task-19: visible chain links / whole-chain highlight)
+        public string ChainKey;
+        public int ChainSize = 1;
+
         // read-only alignment diagnostics (offset from the frozen arm centre line)
         public float RadialOffset;
         public float TangentialOffset;
@@ -113,6 +117,9 @@ namespace FCANebula
         public int CrossWorkspaceChainCount;
         public string ChainSignature = "";
         public readonly List<ChainSummary> ChainSummaries = new List<ChainSummary>();
+        // chain membership lookup (task-19 chain links + whole-chain highlight + selection payload)
+        public readonly Dictionary<string, List<string>> ChainNodeIds = new Dictionary<string, List<string>>(System.StringComparer.Ordinal);
+        public readonly Dictionary<string, string> ChainOfNode = new Dictionary<string, string>(System.StringComparer.Ordinal);
 
         public int ArmCount { get { return Arms.Count; } }
         public int NodeCount { get { return Nodes.Count; } }
@@ -496,6 +503,33 @@ namespace FCANebula
 
             // Chain summaries (read-only validation: every chain is on exactly one arm).
             BuildChainSummaries(model, chainMap);
+
+            // Chain membership maps (task-19): needed by EdgeRenderer chain links,
+            // NodeRenderer whole-chain highlight and the fca-unity-select payload.
+            for (int c = 0; c < chainMap.Chains.Count; c++)
+            {
+                ChainInfo chain = chainMap.Chains[c];
+                List<string> ids = new List<string>(chain.Nodes.Count);
+                for (int i = 0; i < chain.Nodes.Count; i++) ids.Add(chain.Nodes[i].Id);
+                model.ChainNodeIds[chain.Key] = ids;
+                for (int i = 0; i < ids.Count; i++) model.ChainOfNode[ids[i]] = chain.Key;
+            }
+            for (int i = 0; i < model.Nodes.Count; i++)
+            {
+                LayoutNode node = model.Nodes[i];
+                string chainKey;
+                List<string> chainIds;
+                if (model.ChainOfNode.TryGetValue(node.Id, out chainKey) && model.ChainNodeIds.TryGetValue(chainKey, out chainIds))
+                {
+                    node.ChainKey = chainKey;
+                    node.ChainSize = chainIds.Count;
+                }
+                else
+                {
+                    node.ChainKey = node.Id;
+                    node.ChainSize = 1;
+                }
+            }
             return model;
         }
 

@@ -1,19 +1,19 @@
-# FCA Memory Atlas v0.3.0 — 最终验收报告（含 v0.2.x 全部交付）
+# FCA Memory Atlas v0.4.0 — 最终验收报告（含 v0.3.0 全部交付）
 
 - 验收时间：2026-11-12（Asia/Tokyo）
 - 项目：`D:\FCA\FCA-Memory-Atlas`
-- 版本：**v0.3.0**（桌面/Runtime/安装包 0.3.0；DSH 插件 **0.3.1**；Runtime API v1 未变）
-- 结论：**v0.3.0 交付完成** —— 子 Agent 记忆层级展开、Unity↔桌面双向选中、桌面 UI 修复（关系详情/侧栏常驻开关/层级面板）、Unity 星云几何修复与布局冻结、插件 v0.3.1（时间戳/子 Agent 全量记忆/上下文恢复）；在 v0.2.x 基础上累积 Runtime EPIPE/日志轮转修复；v0.2.0 在 v0.1.x 三件套基础上完成「星云渲染迁移 Unity（默认引擎 + WebGL 自动回退）」「同一工作区记忆归入星云同一旋臂」「Agent 思考节点自动记忆」「DSH 插件 0.2.1」「安装包 0.2.0（含 Unity 组件）」。
+- 版本：**v0.4.0**（桌面/Runtime/安装包 0.4.0；DSH 插件 **0.3.1**；Runtime API v1 未变）
+- 结论：**v0.4.0 交付完成** —— 子 Agent 记忆层级展开、Unity↔桌面双向选中、桌面 UI 修复（关系详情/侧栏常驻开关/层级面板）、Unity 星云几何修复与布局冻结、插件 v0.3.1（时间戳/子 Agent 全量记忆/上下文恢复）；在 v0.2.x 基础上累积 Runtime EPIPE/日志轮转修复；v0.2.0 在 v0.1.x 三件套基础上完成「星云渲染迁移 Unity（默认引擎 + WebGL 自动回退）」「同一工作区记忆归入星云同一旋臂」「Agent 思考节点自动记忆」「DSH 插件 0.2.1」「安装包 0.2.0（含 Unity 组件）」。
 - 说明：本报告为 v0.3.0 验收汇总（含 v0.2.x 全部交付）；v0.1.0 的历史验收细节见本文档“v0.1.0 归档”章节与 `CHANGELOG.md`。所有关键项均引用真实运行/构建证据（路径见各节），失败与限制如实列出。
 
 ---
 
-## 1. 交付物清单（v0.3.0）
+## 1. 交付物清单（v0.4.0）
 
 | 交付物 | 路径 | 状态 |
 |---|---|---|
-| 桌面软件安装包（Windows x64，per-user，NSIS + 卸载器，含 Unity 星云） | `artifacts/installer/FCA-Memory-Atlas-Setup-0.3.0-x64.exe`（v0.3.0 交付构建 #2：116,653,589 B（111.2 MB），sha256 `b852d7c1a02439e0529c54e5974663172d46be3e6016d6d361b2be06a5bbcf3a`；实测构建 #1 `b64adbf2…` 全流程 PASS） | ✅ 构建/安装/卸载实测通过 |
-| 安装包校验与构建证据 | `artifacts/installer/FCA-Memory-Atlas-Setup-0.3.0-x64.sha256.json`、`artifacts/reports/install-build-*.json`、同名 `.makensis.log` | ✅ |
+| 桌面软件安装包（Windows x64，per-user，NSIS + 卸载器，含 Unity 星云） | `artifacts/installer/FCA-Memory-Atlas-Setup-0.4.0-x64.exe`（v0.4.0 **构建 #3 含许可证变更**：123,618,233 B（117.9 MiB），sha256 `a391ce0715253c96c14ee51d5bc0ef66b9fe8a9d506d3a15fd4c5ee60e64bd7c`；Unity 6 + URP WebGL payload 63.0 MiB） | ✅ 构建/安装/卸载实测通过 |
+| 安装包校验与构建证据 | `artifacts/installer/FCA-Memory-Atlas-Setup-0.4.0-x64.sha256.json`、`artifacts/reports/install-build-*.json`、同名 `.makensis.log` | ✅ |
 | 桌面软件源码 | `desktop/`（Electron 38 主进程 + ESM renderer + Unity 集成 `main/unity-embed.js`/`unity-viewer.js` + WebGL 回退；**v0.2.1 起 Runtime 启动失败快速失败；v0.3.0 含关系详情/侧栏开关/层级 UI/Unity 双向选中**） | ✅ |
 | FCA Local Runtime | `runtime/`（Node 24 + `node:sqlite`，零第三方运行时依赖；API v1 未变） | ✅ |
 | **Unity 星云（WebGL，内嵌 Electron）** | `artifacts/unity/FCANebulaWebGL/`（Unity 2022.3 WebGL 构建：`index.html` + `Build/*.wasm/*.data/*.loader.js/*.framework.js` + `TemplateData/`） | ✅ 随安装包分发到 `<InstallDir>\unity\FCANebulaWebGL\`；桌面星云视图内嵌渲染 |
@@ -94,14 +94,32 @@
 | Unity 几何/布局冻结 | ✅ 布局 signature v1、链同臂 true、0 errors；对齐统计 mean 0.482 / p95 0.862（max 1.197 来自冻结 jitter） | `artifacts/unity/shots-final/task14-evidence.json`、`artifacts/unity/FCANebulaWebGL/fca-webgl-build-info.json`（built_at 2026-11-12T16:57:30Z） |
 | 插件 0.3.1 能力 | ✅ occurred_at 时间戳 / 子 Agent 全量记忆 / 父子关系 / `fca_memory_context` | `artifacts/plugin/v0.3.0-evidence.json`、`v0.3.1-install-log.json`、`v0.3.1-tag-repair.json`、`v0.3.1-noise-cleanup.json` |
 | 安装包随包断言 | ✅ `ui-fixes-in-payload` / `unity-webgl-build-v030` / `dsh-plugin-version-match` 全 PASS | `artifacts/reports/install-verify-20261113-020300.json` |
+### 3.7 v0.4.0 新功能验证（Unity 6 + URP / 记忆链 / 整链高亮）
+
+| 项 | 结果 | 证据 |
+|---|---|---|
+| Unity 6 + URP WebGL 构建 | ✅ `unity_version=6000.0.23f1`、`render_pipeline=urp`、`urp_asset=FCANebulaURP`、`total_errors=0` | `artifacts/unity/FCANebulaWebGL/fca-webgl-build-info.json`、`artifacts/reports/install-verify-20261113-033307.json`（`unity-6-urp` PASS） |
+| 关联记忆节点可见连线 / 同链同旋臂 | ✅ `features` 含 `chain-links`/`chain-same-arm`；manifest `chainSameArmAll=true`、`chain_pairs_missing=0` | `artifacts/unity/webgl-shots/webgl-chain-closeup.png`、`webgl-shots-manifest.json`、`artifacts/unity/shots-final/v040-evidence.json` |
+| 单击节点高亮整条记忆链 | ✅ 整链高亮 + HUD；`chain-highlight` 标记 | `artifacts/unity/webgl-shots/webgl-chain-highlight.png` |
+| 子 Agent 层级展开（保留） | ✅ hierarchy before/after | `webgl-hierarchy-{before,after}.png` |
+| 桌面 v0.4.0 联调 | ✅ 11/11 PASS（Unity→桌面双向选中/清空同步） | `artifacts/reports/desktop-ui/v040-sync-report.json`、`v040-unity-to-electron.png`、`v040-bidirectional.png`、`v040-clear-sync.png` |
+| 插件 0.3.1 能力（保留） | ✅ occurred_at / 子 Agent 全量 / 父子关系 / `fca_memory_context` | `artifacts/plugin/v0.3.0-evidence.json` 等 |
+| 体积变化记录 | ✅ Unity 组件 25→63 MiB（URP），安装包 111→118 MiB；安装/卸载/CI 时间相应增加 | `docs/INSTALL_TEST.md` §1/§4、`artifacts/installer/*.sha256.json` |
+### 3.8 v0.4.0 许可证变更（源码可见 · 非商用 · 禁止二次修改分发）
+
+- **产品许可**：v0.4.0 起仓库与安装包采用《FCA Memory Atlas 源码可见许可协议（非商用 · 禁止二次修改分发）》（`LICENSE`，4,113 B）。允许个人非商业查看/学习/本机运行官方版/本机个人修改；**禁止任何商业用途、禁止分发、禁止二次修改后分发/公开（含公开 fork、镜像、安装包、容器等）**。v0.4.0 之前版本仍适用其发布时的 MIT。
+- **安装包 payload**：根 `LICENSE` = 产品许可；`LICENSE-THIRD-PARTY.txt` = Electron(MIT)/Node.js(MIT)/Unity+URP/Noto 字体等第三方许可汇总；`LICENSES.chromium.html` = Chromium 第三方 notices；`BUILD_INFO.json.license` 记录文件与类型；`install-report.ini` 记录 `license`/`license_type`/`third_party_license`。
+- **验证**：构建期断言 `product_license_noncommercial` / `product_license_not_mit` / `third_party_license_present` / `chromium_notices_present`；安装期 `license-in-payload`（安装目录 `LICENSE` 含“非商用/禁止二次修改分发”且非 MIT、第三方许可含 Electron MIT、Chromium notices 存在）。
+- **GitHub**：public repo `LICENSE`/README/仓库描述已更新为非商用/源码可见（`license=NOASSERTION/Other`，非 MIT）；Release v0.4.0 说明显著标注许可证限制并链接 `/blob/main/LICENSE`。
 ## 4. 版本一致性
 
 | 组件 | 版本 |
 |---|---|
 | root `package.json` / `desktop/package.json` | 0.2.0 |
-| Windows 安装包 | 0.2.0（`FCA-Memory-Atlas-Setup-0.3.0-x64.exe`） |
+| Windows 安装包 | 0.2.0（`FCA-Memory-Atlas-Setup-0.4.0-x64.exe`） |
 | FCA Local Runtime / HTTP API | 0.1.0 / v1（未变） |
 | DSH 插件 | **0.3.1** |
+| 许可证 | 源码可见·非商用·禁止二次修改分发（v0.4.0 起；历史版本 MIT） |
 | Unity 星云 | 2022.3.62f3 WebGL 构建（随安装包分发到 `unity/FCANebulaWebGL`） |
 | 桌面 UI 版本显示 | 标题栏 `Alpha 0.2` / 状态栏 `Alpha 0.2.0`（`paths.js` 从 `desktop/package.json` 派生，Lead 修复 `8864424`，已含在最终包） |
 

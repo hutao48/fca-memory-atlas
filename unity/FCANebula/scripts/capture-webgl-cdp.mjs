@@ -34,6 +34,7 @@ function parseArgs(argv) {
     emulation: '0',
     hierarchy: '1',
     selection: '1',
+    chain: '1',
     manifestExtra: ''
   };
   for (let i = 0; i < argv.length; i++) {
@@ -53,6 +54,7 @@ function parseArgs(argv) {
       case '--emulation': args.emulation = value; i++; break;
       case '--hierarchy': args.hierarchy = value; i++; break;
       case '--selection': args.selection = value; i++; break;
+      case '--chain': args.chain = value; i++; break;
       case '--manifest-extra': args.manifestExtra = value; i++; break;
       default: break;
     }
@@ -237,6 +239,9 @@ async function main() {
   let state = null;
   let viewportActual = '';
   let selectionTest = null;
+  let chainTest = null;
+  let chainBeforeState = null;
+  let chainAfterState = null;
   let hierarchyBeforeState = null;
   let hierarchyAfterState = null;
 
@@ -353,6 +358,60 @@ async function main() {
       console.warn('[cdp] selection bridge test failed:', e.message);
     }
 
+    // ---- task-19: chain links + whole-chain highlight --------------------------------
+    if (args.chain === '1') {
+      try {
+        const chainProbe = await cdp.evaluate('JSON.stringify(window.__FCA_NEBULA_STATE__ || null)');
+        chainBeforeState = chainProbe.ok && chainProbe.value ? JSON.parse(chainProbe.value) : null;
+        const chainNodeId = chainBeforeState ? (chainBeforeState.sampleChainNodeId || '') : '';
+        const chainSize = chainBeforeState ? (chainBeforeState.sampleChainSize || 0) : 0;
+        if (chainNodeId && chainSize > 1) {
+          await cdp.evaluate('(function(){ try { return !!(window.FCA_NEBULA && window.FCA_NEBULA.setView(1)); } catch(e) { return false; } })()');
+          await cdp.evaluate('(function(){ try { return !!(window.FCA_NEBULA && window.FCA_NEBULA.postCommand("collapse:all")); } catch(e) { return false; } })()');
+          await cdp.evaluate('(function(){ try { return !!(window.FCA_NEBULA && window.FCA_NEBULA.postCommand("select:clear")); } catch(e) { return false; } })()');
+          await cdp.evaluate('(function(){ try { return !!(window.FCA_NEBULA && window.FCA_NEBULA.postCommand("labels:1")); } catch(e) { return false; } })()');
+          await sleep(Math.max(1200, args.settleMs));
+          writeFileSync(join(outDir, 'webgl-chain-closeup.png'), await cdp.screenshot());
+          writeFileSync(join(outDir, 'webgl-chain-links.png'), await cdp.screenshot());
+          console.log('[cdp] captured chain-closeup / chain-links (gold chain-link close-up)');
+
+          const selectCmd = `select:${String(chainNodeId).replace(/'/g, '')}`;
+          const selected = await cdp.evaluate(`(function(){ try { return !!(window.FCA_NEBULA && window.FCA_NEBULA.postCommand(${JSON.stringify(selectCmd)})); } catch(e) { return false; } })()`);
+          await sleep(Math.max(1400, args.settleMs));
+          const afterProbe = await cdp.evaluate('JSON.stringify({state: window.__FCA_NEBULA_STATE__ || null, selected: window.__FCA_NEBULA_SELECTED__ || null})');
+          const after = afterProbe.ok && afterProbe.value ? JSON.parse(afterProbe.value) : null;
+          chainAfterState = after ? after.state : null;
+          writeFileSync(join(outDir, 'webgl-chain-highlight.png'), await cdp.screenshot());
+          console.log('[cdp] captured chain-highlight', chainNodeId, 'size=', chainSize);
+          const selectedPayload = after ? after.selected : null;
+          chainTest = {
+            chainNodeId: String(chainNodeId),
+            chainSize: chainSize,
+            commandSent: !!(selected.ok && selected.value),
+            selectedId: selectedPayload ? selectedPayload.id : null,
+            selectedChainIds: selectedPayload && selectedPayload.chainIds ? selectedPayload.chainIds.length : 0,
+            selectedChainSize: selectedPayload ? selectedPayload.chainSize : 0,
+            stateHighlightedChainSize: chainAfterState ? chainAfterState.highlightedChainSize : 0,
+            chainEdges: chainAfterState ? chainAfterState.chainEdges : 0,
+            chainPairsExpected: chainAfterState ? chainAfterState.chainPairsExpected : 0,
+            chainPairsMissing: chainAfterState ? chainAfterState.chainPairsMissing : 0,
+            passed: !!(selectedPayload && selectedPayload.id === String(chainNodeId)
+              && selectedPayload.chainIds && selectedPayload.chainIds.length === chainSize
+              && chainAfterState && chainAfterState.highlightedChainSize === chainSize)
+          };
+          console.log('[cdp] chain highlight test:', JSON.stringify(chainTest));
+          await cdp.evaluate('(function(){ try { return !!(window.FCA_NEBULA && window.FCA_NEBULA.postCommand("select:clear")); } catch(e) { return false; } })()');
+          await sleep(500);
+        } else {
+          chainTest = { skipped: true, reason: 'no multi-node chain in current Runtime graph' };
+          console.warn('[cdp] no multi-node chain (sampleChainSize=' + chainSize + '); skipping chain screenshots');
+        }
+      } catch (e) {
+        chainTest = { passed: false, error: e.message };
+        console.warn('[cdp] chain highlight test failed:', e.message);
+      }
+    }
+
     // ---- task-14: hierarchy expand before/after -------------------------------------
     if (args.hierarchy === '1') {
       const stateProbe = await cdp.evaluate('JSON.stringify(window.__FCA_NEBULA_STATE__ || null)');
@@ -413,6 +472,13 @@ async function main() {
       hierarchyBeforeState = previousManifest.hierarchy.before || null;
       hierarchyAfterState = previousManifest.hierarchy.after || null;
     }
+    if ((!chainTest || chainTest.skipped || chainTest.passed === false) && previousManifest.chain_test && previousManifest.chain_test.passed) {
+      chainTest = previousManifest.chain_test;
+    }
+    if (!chainBeforeState && previousManifest.chain) {
+      chainBeforeState = previousManifest.chain.before || null;
+      chainAfterState = previousManifest.chain.after || null;
+    }
     if ((!state || !state.chainCount) && previousManifest.diagnostics) {
       // keep previous chain diagnostics when this run is a partial view capture
     }
@@ -426,7 +492,7 @@ async function main() {
   try {
     const { readdirSync } = await import('node:fs');
     for (const entry of readdirSync(outDir)) {
-      if (/^webgl-(view-\d+|hierarchy-(before|after))\.png$/.test(entry)) {
+      if (/^webgl-(view-\d+|hierarchy-(before|after)|chain-(links|highlight|closeup))\.png$/.test(entry)) {
         const full = join(outDir, entry);
         if (!files.includes(full)) files.push(full);
       }
@@ -448,6 +514,11 @@ async function main() {
     viewport_actual: viewportActual,
     unity_version: buildInfo ? buildInfo.unity_version : null,
     compression: buildInfo ? buildInfo.compression : null,
+    // task-20: Unity 6 + URP metadata for v0.4.0 acceptance packages
+    render_pipeline: buildInfo ? buildInfo.render_pipeline : null,
+    urp: buildInfo ? !!buildInfo.urp : null,
+    urp_asset: buildInfo ? buildInfo.urp_asset : null,
+    built_at_utc: buildInfo ? buildInfo.built_at_utc : null,
     connected: state ? !!state.connected : null,
     sample_data: state ? !!state.sample : null,
     nodes: state ? state.nodes : null,
@@ -479,9 +550,25 @@ async function main() {
       chain_same_arm_all: state.chainSameArmAll,
       chain_summary: state.chainSummary,
       sample_node_id: state.sampleNodeId,
-      selected_node_id: state.selectedNodeId
+      selected_node_id: state.selectedNodeId,
+      // task-19: chain links + whole-chain highlight
+      chain_edges: state.chainEdges,
+      chain_pairs_expected: state.chainPairsExpected,
+      chain_pairs_missing: state.chainPairsMissing,
+      related_pairs: state.relatedPairs,
+      related_pairs_missing_edges: state.relatedPairsMissingEdges,
+      highlighted_chain_key: state.highlightedChainKey,
+      highlighted_chain_size: state.highlightedChainSize,
+      sample_chain_node_id: state.sampleChainNodeId,
+      sample_chain_node_title: state.sampleChainNodeTitle,
+      sample_chain_size: state.sampleChainSize
     } : null,
     selection_test: selectionTest,
+    chain_test: chainTest,
+    chain: (chainBeforeState || chainAfterState) ? {
+      before: chainBeforeState,
+      after: chainAfterState
+    } : null,
     hierarchy: (hierarchyBeforeState || hierarchyAfterState) ? {
       before: hierarchyBeforeState,
       after: hierarchyAfterState

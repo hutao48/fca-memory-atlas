@@ -2,7 +2,7 @@
 
 > 把本文件全文 + 仓库地址交给 DeepSeek Agent（或任何具备本地命令行执行能力的 Agent），它就能按步骤自主完成安装、初始化、启动、DSH 插件接入与验收。
 > 仓库地址：`https://github.com/hutao48/fca-memory-atlas`
-> 预构建安装包（推荐）：`https://github.com/hutao48/fca-memory-atlas/releases/latest` → `FCA-Memory-Atlas-Setup-0.3.0-x64.exe`（v0.3.0：子 Agent 记忆层级、Unity↔桌面双向选中、桌面 UI 修复、插件 0.3.1、Runtime EPIPE/日志轮转修复 + Unity WebGL 内嵌星云）
+> 预构建安装包（推荐）：`https://github.com/hutao48/fca-memory-atlas/releases/latest` → `FCA-Memory-Atlas-Setup-0.4.0-x64.exe`（v0.4.0：Unity 6 + URP WebGL 渲染升级、记忆链连线/同链同旋臂/整链高亮 + 子 Agent 层级、Unity↔桌面双向选中、桌面 UI 修复、插件 0.3.1）
 
 ---
 
@@ -44,11 +44,11 @@ nvidia-smi --query-gpu=name,memory.total,driver_version --format=csv
 ### 方案 A：安装包（推荐）
 
 1. 获取安装包（任选其一）：
-   - 从 GitHub Releases 直接下载 `FCA-Memory-Atlas-Setup-0.3.0-x64.exe`（v0.2.1 Release 已附带，约 111 MB，含 sha256 校验文件；请优先使用 latest）；
-   - 或克隆仓库后本地构建：`node installer/build.js`（构建产物 `artifacts/installer/FCA-Memory-Atlas-Setup-0.3.0-x64.exe`，需要 Electron 缓存，见 `scripts/fetch-electron.js`；Unity 星云构建产物在 `artifacts/unity/FCANebula/`，缺失时安装包仍可构建并由桌面回退 WebGL）。
+   - 从 GitHub Releases 直接下载 `FCA-Memory-Atlas-Setup-0.4.0-x64.exe`（v0.2.1 Release 已附带，约 111 MB，含 sha256 校验文件；请优先使用 latest）；
+   - 或克隆仓库后本地构建：`node installer/build.js`（构建产物 `artifacts/installer/FCA-Memory-Atlas-Setup-0.4.0-x64.exe`，需要 Electron 缓存，见 `scripts/fetch-electron.js`；Unity 星云构建产物在 `artifacts/unity/FCANebula/`，缺失时安装包仍可构建并由桌面回退 WebGL）。
 2. 在 **Windows 文件资源管理器**中双击安装包（per-user，无需管理员）；静默安装：
    ```powershell
-   .\FCA-Memory-Atlas-Setup-0.3.0-x64.exe /S
+   .\FCA-Memory-Atlas-Setup-0.4.0-x64.exe /S
    ```
 3. 校验安装结果（必须全部存在）：
    ```powershell

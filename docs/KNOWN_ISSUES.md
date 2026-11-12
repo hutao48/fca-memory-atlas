@@ -1,8 +1,8 @@
-# FCA Memory Atlas 已知问题与限制（v0.3.0）
+# FCA Memory Atlas 已知问题与限制（v0.4.0）
 
-- 版本：v0.3.0（桌面/Runtime/安装包 0.3.0；DSH 插件 0.3.1；Runtime API v1）
+- 版本：v0.4.0（桌面/Runtime/安装包 0.4.0；DSH 插件 0.3.1；Runtime API v1）
 - 更新：2026-11-12
-- 适用范围：安装版桌面软件（`FCA-Memory-Atlas-Setup-0.3.0-x64.exe`，含 Unity 星云组件）+ 随包 FCA Local Runtime + DSH 插件
+- 适用范围：安装版桌面软件（`FCA-Memory-Atlas-Setup-0.4.0-x64.exe`，含 Unity 星云组件）+ 随包 FCA Local Runtime + DSH 插件
 - 来源：交付实测（`docs/INSTALL_TEST.md`、`artifacts/reports/install-*.json`、`artifacts/unity/*`、`artifacts/plugin/*`）+ QA 自动化测试（`docs/TEST_REPORT.md`、`artifacts/reports/security.json` 等）。
 
 级别说明：**高**=影响可用性/数据安全；**中**=影响部分功能或体验；**低**=边界问题；**信息**=设计限制/契约未覆盖，当前版本接受。

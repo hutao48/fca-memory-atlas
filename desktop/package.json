@@ -1,11 +1,11 @@
 {
     "name":  "@fca/desktop",
-    "version":  "0.3.0",
+    "version":  "0.4.0",
     "private":  true,
     "description":  "FCA Memory Atlas — Windows desktop shell (Electron 38): three-pane professional astronomy UI, local Runtime lifecycle management, WebGL2 nebula canvas.",
     "main":  "main/main.js",
     "author":  "FCA Project",
-    "license":  "UNLICENSED",
+    "license":  "SEE LICENSE IN LICENSE",
     "type":  "commonjs",
     "scripts":  {
                     "start":  "set \"ELECTRON_RUN_AS_NODE=\" \u0026\u0026 \"..\\.cache\\electron-dist\\electron.exe\" .",

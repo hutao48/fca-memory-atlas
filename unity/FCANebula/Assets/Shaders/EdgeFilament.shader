@@ -1,7 +1,8 @@
-// FCA Memory Atlas — Unity Nebula Renderer (Built-in Render Pipeline)
+// FCA Memory Atlas — Unity 6 / URP Nebula Renderer
 // FCA/EdgeFilament: additive relation light-filaments. A single dynamic ribbon mesh is built
 // on the CPU for all edges; this shader fades the ribbon across its width and animates a
 // travelling light pulse (colour / dash / flow come from ThemePalette relation styles).
+// Task-20: pass uses LightMode=UniversalForward so URP renders the additive ribbons.
 
 Shader "FCA/EdgeFilament"
 {
@@ -20,6 +21,7 @@ Shader "FCA/EdgeFilament"
 
         Pass
         {
+            Tags { "LightMode"="UniversalForward" }
             CGPROGRAM
             #pragma vertex vert
             #pragma fragment frag

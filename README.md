@@ -1,4 +1,4 @@
-# FCA Memory Atlas — v0.3.0
+# FCA Memory Atlas — v0.4.0
 
 > **许可（v0.4.0 起 / License）**：源码可见，**禁止商用、禁止二次修改后分发**；仅允许个人非商业查看/学习/本机运行官方版本，以及为自己的个人使用在本机修改（修改版不得以任何形式分发）。详见 [LICENSE](LICENSE)。v0.4.0 之前的版本继续适用其发布时随附的 MIT 许可。
 
@@ -6,12 +6,14 @@ FCA（Fish Cognitive Architecture）的本地认知基础设施实现，交付�
 
 | 产品 | 说明 | 目录 / 交付物 |
 |---|---|---|
-| **FCA Memory Atlas** | 可安装的 Windows x64 桌面软件（Electron 38 + **Unity 星云渲染**，内置 WebGL 回退） | `desktop/`；安装包 `artifacts/installer/FCA-Memory-Atlas-Setup-0.3.0-x64.exe` |
+| **FCA Memory Atlas** | 可安装的 Windows x64 桌面软件（Electron 38 + **Unity 星云渲染**，内置 WebGL 回退） | `desktop/`；安装包 `artifacts/installer/FCA-Memory-Atlas-Setup-0.4.0-x64.exe` |
 | **FCA Local Runtime** | 本地认知服务（127.0.0.1:17860，SQLite，零第三方运行时依赖） | `runtime/`；随安装包分发（含随包 Node 24） |
 | **FCA DSH Plugin** | 正式 DSH Cordis 插件 v0.3.1（安装到 DSH profile，连接同一 Runtime） | `dsh_plugin/`；产物 `artifacts/plugin/dsh-plugin-fca-memory-0.2.1.tgz` |
 | **FCA Nebula（Unity WebGL）** | Unity 2022.3 WebGL 星云渲染器（工作区旋臂 + Agent 思考节点可视化），**内嵌 Electron 界面**（本地静态服务 + iframe） | `unity/FCANebula/`（源码含 standalone/WebGL 构建脚本）；随安装包分发到 `<安装目录>\unity\FCANebulaWebGL\`，构建产物 `artifacts/unity/FCANebulaWebGL/` |
 
 三者共享同一个 FCA Local Runtime 和同一套数据；任一 UI 关闭不影响数据完整性。LLM 通过 API Gateway 调用，模型可替换；本地记忆的读写不依赖任何 LLM。
+
+**v0.4.0 新功能**：Unity 6 + URP WebGL 渲染升级（星云/节点/光丝视觉与性能提升）；关联记忆节点可见连线、同一记忆链同一旋臂、单击节点高亮整条记忆链；其余同 v0.3.0。
 
 **v0.3.0 新功能**：子 Agent 记忆层级展开（Unity 点击父节点展开子会话）、Unity↔桌面双向选中同步、插件 0.3.1（时间戳/子 Agent 全量采集/父子关系/上下文恢复工具 `fca_memory_context`）、桌面 UI 修复（关系详情/左右栏常驻开关/层级面板）、Unity 旋臂-节点-连线几何修复。
 
@@ -19,7 +21,7 @@ FCA（Fish Cognitive Architecture）的本地认知基础设施实现，交付�
 
 ## 快速开始（安装版，推荐）
 
-1. 双击 `artifacts/installer/FCA-Memory-Atlas-Setup-0.3.0-x64.exe`（per-user 安装，无需管理员）。
+1. 双击 `artifacts/installer/FCA-Memory-Atlas-Setup-0.4.0-x64.exe`（per-user 安装，无需管理员）。
 2. 按向导安装（默认目录 `%LOCALAPPDATA%\Programs\FCA Memory Atlas`），完成后可从桌面/开始菜单启动。
 3. 首次启动进入**首次启动向导**：选择数据目录（默认 `%LOCALAPPDATA%\FCA-Memory-Atlas`）→ 端口（默认 17860）→ 初始化空库 → 健康检查 → 完成。
 4. 星云视图默认在 Electron 窗口内嵌渲染 **Unity WebGL**（本地静态服务 + iframe）；可在“设置 → 星云引擎”切换 `Unity / WebGL`，Unity 资源缺失或启动失败时自动回退内置 WebGL 星云。
@@ -29,27 +31,27 @@ FCA（Fish Cognitive Architecture）的本地认知基础设施实现，交付�
 
 ```powershell
 # 默认目录静默安装
-.\FCA-Memory-Atlas-Setup-0.3.0-x64.exe /S
+.\FCA-Memory-Atlas-Setup-0.4.0-x64.exe /S
 # 自定义目录（/D= 必须是最后一个参数，路径不要加引号）
-.\FCA-Memory-Atlas-Setup-0.3.0-x64.exe /S /D=D:\Apps\FCA-Memory-Atlas
+.\FCA-Memory-Atlas-Setup-0.4.0-x64.exe /S /D=D:\Apps\FCA-Memory-Atlas
 # 安装日志：%TEMP%\fca-install.log；静默卸载：<安装目录>\Uninstall.exe /S（默认保留用户数据）
 ```
 
-安装包校验：同目录 `FCA-Memory-Atlas-Setup-0.3.0-x64.sha256.json`（`Get-FileHash -Algorithm SHA256` 比对）。
+安装包校验：同目录 `FCA-Memory-Atlas-Setup-0.4.0-x64.sha256.json`（`Get-FileHash -Algorithm SHA256` 比对）。
 
-当前交付包（2026-11-13 **v0.3.0** 构建；最终数值见 `artifacts/installer/FCA-Memory-Atlas-Setup-0.3.0-x64.sha256.json` 与 `docs/INSTALL_TEST.md`）：
+当前交付包（2026-11-13 **v0.4.0** 构建；最终数值见 `artifacts/installer/FCA-Memory-Atlas-Setup-0.4.0-x64.sha256.json` 与 `docs/INSTALL_TEST.md`）：
 
 | 项目 | 值 |
 |---|---|
-| 文件 | `artifacts/installer/FCA-Memory-Atlas-Setup-0.3.0-x64.exe` |
-| 大小 | 116,653,589 B（111.2 MB） |
-| SHA256 | `b852d7c1a02439e0529c54e5974663172d46be3e6016d6d361b2be06a5bbcf3a`（v0.3.0 交付构建；实测构建 `b64adbf2…` 全流程 PASS，交付构建仅文档差异） |
-| 版本 / API | 0.3.0 / v1 |
-| 构建时间 | 2026-11-12T17:03:42.811Z |
-| payload | 233 文件 / 388,652,424 B（desktop 74、runtime 69、docs 21、Unity WebGL 19 / 25.0 MiB、dsh_plugin 2 / 67 KiB / 插件 0.3.1） |
-| 构建证据 | `artifacts/reports/install-build-2026-11-12T17-03-42-811Z.json` + 同名 `.makensis.log` |
+| 文件 | `artifacts/installer/FCA-Memory-Atlas-Setup-0.4.0-x64.exe` |
+| 大小 | **123,618,233 B（117.9 MiB）**（构建 #3 含许可证变更） |
+| SHA256 | **`a391ce0715253c96c14ee51d5bc0ef66b9fe8a9d506d3a15fd4c5ee60e64bd7c`**（构建 #3，含源码可见许可证） |
+| 版本 / API | 0.4.0 / v1 |
+| 构建时间 | 2026-11-12T18:39:33.327Z |
+| payload | 234 文件 / 428,487,865 B（desktop 74、runtime 69、docs 21、**Unity 6 + URP WebGL 19 / 63.0 MiB**、dsh_plugin 2 / 67 KiB / 插件 0.3.1、**LICENSE + LICENSE-THIRD-PARTY.txt + LICENSES.chromium.html**） |
+| 构建证据 | `artifacts/reports/install-build-2026-11-12T18-39-33-327Z.json.json` + 同名 `.makensis.log` |
 
-> Unity 星云组件为可选 payload：构建时 `artifacts/unity/FCANebulaWebGL/index.html` 存在则打包到 `<安装目录>\unity\FCANebulaWebGL\`，并在 `BUILD_INFO.json` / `install-report.ini` 记录；缺失时桌面自动回退内置 WebGL 星云。standalone 版（`artifacts/unity/FCANebula`）默认不随安装包分发（开发/备用）。
+> **许可证（v0.4.0 起）**：安装包与仓库采用《FCA Memory Atlas 源码可见许可协议（非商用 · 禁止二次修改分发）》——仅允许个人非商业使用，**禁止商用与二次修改后分发**；安装包 payload 根 `LICENSE` 为本许可，`LICENSE-THIRD-PARTY.txt`/`LICENSES.chromium.html` 为第三方组件许可（Electron/Chromium/Node.js/Unity 等各自许可）。v0.4.0 之前版本适用其发布时的 MIT。详见仓库 `LICENSE`。`r`n`r`n> Unity 星云组件为可选 payload：构建时 `artifacts/unity/FCANebulaWebGL/index.html` 存在则打包到 `<安装目录>\unity\FCANebulaWebGL\`，并在 `BUILD_INFO.json` / `install-report.ini` 记录；缺失时桌面自动回退内置 WebGL 星云。standalone 版（`artifacts/unity/FCANebula`）默认不随安装包分发（开发/备用）。
 
 ## 快速开始（开发）
 
@@ -93,8 +95,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File installer\run-install-test.p
 
 | 交付物 | 路径 |
 |---|---|
-| Windows x64 安装包（NSIS，per-user，含卸载器；含 Unity 星云） | `artifacts/installer/FCA-Memory-Atlas-Setup-0.3.0-x64.exe` |
-| 安装包 SHA256/体积元数据 | `artifacts/installer/FCA-Memory-Atlas-Setup-0.3.0-x64.sha256.json` |
+| Windows x64 安装包（NSIS，per-user，含卸载器；含 Unity 星云） | `artifacts/installer/FCA-Memory-Atlas-Setup-0.4.0-x64.exe` |
+| 安装包 SHA256/体积元数据 | `artifacts/installer/FCA-Memory-Atlas-Setup-0.4.0-x64.sha256.json` |
 | 构建证据（makensis 日志 + 构建 JSON） | `artifacts/reports/install-build-*` |
 | 安装/启动/卸载实测报告 | `docs/INSTALL_TEST.md` + `artifacts/reports/install-test-*.json` |
 | 用户手册 | `docs/USER_MANUAL.md` |
@@ -153,6 +155,7 @@ FCA-Memory-Atlas/
 
 ## 版本
 
+- **v0.4.0（2026-11-13）**：Unity 6 + URP WebGL 渲染升级、Unity 记忆链连线/同链同旋臂/整链高亮；安装包 v0.4.0。
 - **v0.3.0（2026-11-13）**：子 Agent 记忆层级 / Unity 双向选中 / 桌面 UI 修复 / 插件 0.3.1（时间戳·子 Agent 全量·上下文恢复）/ Unity 几何修复；安装包 v0.3.0。
 - **v0.2.1（2026-11-12）**：Runtime 稳定性修复（EPIPE 死循环/启动超时），安装包重建；其余同 v0.2.0。
 - **v0.2.0（2026-11-12）**：Unity 星云渲染（默认，WebGL 回退）、工作区旋臂、Agent 思考节点、DSH 插件 v0.2.1、安装包含 Unity 组件；文档与验收报告更新。详见 `CHANGELOG.md`。

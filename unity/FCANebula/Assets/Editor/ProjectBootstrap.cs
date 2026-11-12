@@ -163,6 +163,9 @@ namespace FCANebula.EditorTools
             QualitySettings.vSyncCount = 0;
             QualitySettings.antiAliasing = 4;
 
+            // Task-20: Unity 6 URP pipeline asset / global volume / camera data.
+            URPSetup.ConfigureProject();
+
             // NOTE: the active build target is intentionally NOT switched here. The bootstrap
             // runs for several platforms (standalone + WebGL); BuildScript manages the target.
             AssetDatabase.SaveAssets();
@@ -187,6 +190,9 @@ namespace FCANebula.EditorTools
             cameraObject.transform.rotation = Quaternion.Euler(14f, 0f, 0f);
             cameraObject.AddComponent<NebulaCameraRig>();
             cameraObject.AddComponent<NebulaFieldRenderer>();
+            // Task-20: URP camera data (post-processing + global volume) and HDRP-like volume.
+            URPSetup.EnsureCameraData(camera);
+            URPSetup.EnsureGlobalVolume();
 
             GameObject systemObject = new GameObject("FCA Nebula System");
             systemObject.AddComponent<NebulaApp>();

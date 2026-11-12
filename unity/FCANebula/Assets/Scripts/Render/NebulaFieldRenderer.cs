@@ -1,7 +1,8 @@
-// FCA Memory Atlas — Unity Nebula Renderer (Built-in Render Pipeline)
+// FCA Memory Atlas — Unity 6 / URP Nebula Renderer
 // NebulaFieldRenderer: renders the procedural volumetric nebula on a camera-attached
-// fullscreen quad (Background queue) and runs a small custom bloom/tonemap post chain
-// (OnRenderImage). No URP/HDRP dependency.
+// fullscreen quad (Background queue). The custom bloom/tonemap OnRenderImage post chain is
+// Built-in-only: it is disabled automatically when a Scriptable Render Pipeline (URP) is
+// active — task-20 replaces it with URP Volume post-processing (Bloom/ACES/Color/Vignette).
 //
 // Why a quad and not OnRenderImage raymarch? A camera-child quad gives stable world-ray
 // reconstruction on every graphics API (D3D/OpenGL) without RT flip gymnastics; the
@@ -254,8 +255,24 @@ namespace FCANebula
             }
         }
 
+        void LateUpdate()
+        {
+            // SRP (URP) does not call OnPreCull, so keep the near-plane quad in sync here too.
+            if (_initialized && _camera != null)
+            {
+                UpdateQuadGeometry();
+            }
+        }
+
         void OnRenderImage(RenderTexture source, RenderTexture destination)
         {
+            // Task-20: URP handles post-processing via Volume; never run the Built-in-only
+            // OnRenderImage chain when an SRP is active (otherwise it would be ignored anyway).
+            if (GraphicsSettings.currentRenderPipeline != null)
+            {
+                Graphics.Blit(source, destination);
+                return;
+            }
             if (!_initialized || _postMaterial == null)
             {
                 Graphics.Blit(source, destination);

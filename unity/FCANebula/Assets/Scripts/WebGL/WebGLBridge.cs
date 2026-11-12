@@ -4,6 +4,7 @@
 
 #if UNITY_WEBGL && !UNITY_EDITOR
 using System;
+using System.Collections.Generic;
 using System.Globalization;
 using System.Runtime.InteropServices;
 using System.Text;
@@ -57,6 +58,17 @@ namespace FCANebula
         public string sampleNodeId;
         public string sampleNodeTitle;
         public string selectedNodeId;
+        // task-19: chain links + whole-chain highlight diagnostics
+        public int chainEdges;
+        public int chainPairsExpected;
+        public int chainPairsMissing;
+        public int relatedPairs;
+        public int relatedPairsMissingEdges;
+        public string highlightedChainKey;
+        public int highlightedChainSize;
+        public string sampleChainNodeId;
+        public string sampleChainNodeTitle;
+        public int sampleChainSize;
     }
 
     [Serializable]
@@ -71,6 +83,9 @@ namespace FCANebula
         public string occurredAt;
         public bool selected;
         public bool clear;
+        // task-19: memory-chain membership (backward compatible additive fields)
+        public string[] chainIds;
+        public int chainSize;
     }
 
     public static class WebGLBridge
@@ -221,6 +236,31 @@ namespace FCANebula
                             break;
                         }
                     }
+                    // First chain member (>1 node) for the task-19 highlight acceptance test.
+                    for (int i = 0; i < layout.Nodes.Count; i++)
+                    {
+                        LayoutNode candidate = layout.Nodes[i];
+                        if (candidate.IsVisible && candidate.ChainSize > 1 && candidate.Source != null)
+                        {
+                            payload.sampleChainNodeId = candidate.Id;
+                            payload.sampleChainNodeTitle = candidate.Source.DisplayTitle;
+                            payload.sampleChainSize = candidate.ChainSize;
+                            break;
+                        }
+                    }
+                }
+                if (app != null && app.Edges != null)
+                {
+                    payload.chainEdges = app.Edges.ChainLinkCount;
+                    payload.chainPairsExpected = app.Edges.ChainPairsExpected;
+                    payload.chainPairsMissing = app.Edges.ChainPairsMissing;
+                    payload.relatedPairs = app.Edges.RelatedPairs;
+                    payload.relatedPairsMissingEdges = app.Edges.RelatedPairsMissingEdges;
+                }
+                if (app != null)
+                {
+                    payload.highlightedChainKey = app.HighlightedChainKey ?? "";
+                    payload.highlightedChainSize = app.HighlightedChainSize;
                 }
                 if (app != null && app.Nodes != null && app.Nodes.SelectedNode != null)
                 {
@@ -272,6 +312,8 @@ namespace FCANebula
                 payload.id = null;
                 payload.selected = false;
                 payload.clear = true;
+                payload.chainIds = new string[0];
+                payload.chainSize = 0;
                 _lastSelectionId = "";
             }
             else
@@ -285,6 +327,18 @@ namespace FCANebula
                 payload.occurredAt = node.Source != null ? node.Source.OccurredAt : null;
                 payload.selected = true;
                 payload.clear = false;
+                // task-19: expose chain membership for desktop displays (additive fields).
+                List<string> chainIds = null;
+                if (layout != null && !string.IsNullOrEmpty(node.ChainKey) && layout.ChainNodeIds.TryGetValue(node.ChainKey, out chainIds))
+                {
+                    payload.chainIds = chainIds.ToArray();
+                    payload.chainSize = node.ChainSize;
+                }
+                else
+                {
+                    payload.chainIds = new string[] { node.Id };
+                    payload.chainSize = 1;
+                }
                 _lastSelectionId = node.Id;
             }
             try
@@ -384,6 +438,19 @@ namespace FCANebula
                             app.Nodes.Select(focusNode, false);
                             app.CameraRig.FocusOnNode(focusNode);
                             NotifySelection(focusNode, app.CurrentLayout);
+                        }
+                    }
+                    break;
+                case "highlight-chain":
+                case "select-chain":
+                    // task-19 aliases: selecting a chain member highlights the whole chain.
+                    if (app.Nodes != null && !string.IsNullOrEmpty(arg))
+                    {
+                        LayoutNode chainNode;
+                        if (app.CurrentLayout != null && app.CurrentLayout.ById.TryGetValue(arg, out chainNode))
+                        {
+                            app.Nodes.Select(chainNode, false);
+                            NotifySelection(chainNode, app.CurrentLayout);
                         }
                     }
                     break;

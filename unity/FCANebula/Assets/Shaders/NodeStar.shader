@@ -1,8 +1,9 @@
-// FCA Memory Atlas — Unity Nebula Renderer (Built-in Render Pipeline)
+// FCA Memory Atlas — Unity 6 / URP Nebula Renderer
 // FCA/NodeStar: additive star billboard sprite. NodeRenderer batches all nodes into one
 // dynamic mesh (4 vertices per node, one draw call) and bakes per-node colour / brightness /
 // selection state into the vertex streams — this avoids MaterialPropertyBlock instancing
 // pitfalls and renders reliably in standalone Windows builds.
+// Task-20: pass uses LightMode=UniversalForward so URP renders the additive billboards.
 
 Shader "FCA/NodeStar"
 {
@@ -22,6 +23,7 @@ Shader "FCA/NodeStar"
 
         Pass
         {
+            Tags { "LightMode"="UniversalForward" }
             CGPROGRAM
             #pragma vertex vert
             #pragma fragment frag
@@ -71,8 +73,10 @@ Shader "FCA/NodeStar"
                 // nebula colour is close to its own tint (e.g. memories on the cyan FCA arm).
                 col += float3(1.0, 0.97, 0.93) * (core * core * 1.4 + pow(saturate(0.55 - r), 4.0) * 1.2);
 
-                // Selection ring + soft hover ring + expandable-parent ring.
-                float selRing = smoothstep(0.055, 0.0, abs(r - 0.74)) * i.extra.x;
+                // Selection ring + soft hover ring + expandable-parent ring + chain highlight.
+                float selectedFlag = step(0.5, i.extra.x) * step(i.extra.x, 1.5);
+                float chainFlag = step(1.5, i.extra.x);
+                float selRing = smoothstep(0.055, 0.0, abs(r - 0.74)) * selectedFlag;
                 col += float3(0.80, 0.92, 1.10) * selRing * 1.1;
                 float parentFlag = step(1.5, i.extra.y);
                 float hoverFlag = step(0.5, i.extra.y) * step(i.extra.y, 1.5);
@@ -82,6 +86,12 @@ Shader "FCA/NodeStar"
                 float parentPulse = 0.65 + 0.35 * sin(_Time.y * 2.2 + i.color.a * 6.2831);
                 float parentRing = smoothstep(0.05, 0.0, abs(r - 0.82)) * parentFlag;
                 col += float3(0.95, 0.84, 0.58) * parentRing * 0.65 * parentPulse;
+                // task-19: whole-chain highlight — warm halo + gold ring on every chain member.
+                float chainHalo = chainFlag * saturate(1.0 - pow(r, 0.55)) * 0.45;
+                col += float3(1.0, 0.86, 0.58) * chainHalo;
+                float chainPulse = 0.75 + 0.25 * sin(_Time.y * 3.4 + i.color.a * 6.2831);
+                float chainRing = smoothstep(0.06, 0.0, abs(r - 0.60)) * chainFlag;
+                col += float3(1.0, 0.88, 0.62) * chainRing * 0.85 * chainPulse;
 
                 return float4(col * _Intensity, 1.0);
             }

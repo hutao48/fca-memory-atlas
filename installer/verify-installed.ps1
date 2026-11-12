@@ -148,7 +148,7 @@ Add-Step 'silent-install-exit-0' ($installExit -eq 0) "exit=$installExit elapsed
 
 # ---------- 3. installed files
 $required = @(
-  'FCA Memory Atlas.exe', 'Uninstall.exe', 'BUILD_INFO.json', 'LICENSE', 'LICENSES.chromium.html', 'install-report.ini',
+  'FCA Memory Atlas.exe', 'Uninstall.exe', 'BUILD_INFO.json', 'LICENSE', 'LICENSE-THIRD-PARTY.txt', 'LICENSES.chromium.html', 'install-report.ini',
   'resources\app\package.json', 'resources\app\main\main.js', 'resources\app\main\preload.js', 'resources\app\main\ipc.js',
   'resources\app\main\runtime-manager.js', 'resources\app\main\settings.js', 'resources\app\main\paths.js',
   'resources\app\main\unity-viewer.js', 'resources\app\main\unity-embed.js',
@@ -184,6 +184,21 @@ $runtimeSrcText = if (Test-Path $runtimeSrcFile) { [System.IO.File]::ReadAllText
 $loggingText = if (Test-Path $loggingFile) { [System.IO.File]::ReadAllText($loggingFile) } else { '' }
 $epipe = [ordered]@{ runtime_isBrokenPipeError = ($runtimeSrcText -match 'isBrokenPipeError'); runtime_epipe_handler = ($runtimeSrcText -match 'EPIPE'); logging_consoleBroken = ($loggingText -match 'consoleBroken') }
 $report.results.epipe_fix = $epipe
+# v0.4.0 许可证断言：payload 必须含源码可见产品许可（非商用·禁止二次修改分发）与第三方许可
+$licText = if (Test-Path -LiteralPath (Join-Path $InstallDir 'LICENSE')) { [System.IO.File]::ReadAllText((Join-Path $InstallDir 'LICENSE')) } else { '' }
+$thirdPartyText = if (Test-Path -LiteralPath (Join-Path $InstallDir 'LICENSE-THIRD-PARTY.txt')) { [System.IO.File]::ReadAllText((Join-Path $InstallDir 'LICENSE-THIRD-PARTY.txt')) } else { '' }
+$license = [ordered]@{
+  product_present = (Test-Path -LiteralPath (Join-Path $InstallDir 'LICENSE'))
+  noncommercial = ($licText -match '非商用')
+  no_redistribution = ($licText -match '禁止二次修改分发|No Redistribution')
+  not_mit_product = (-not ($licText -match '^\s*MIT License'))
+  third_party_present = (Test-Path -LiteralPath (Join-Path $InstallDir 'LICENSE-THIRD-PARTY.txt'))
+  third_party_has_electron_mit = ($thirdPartyText -match 'Electron' -and $thirdPartyText -match 'MIT')
+  chromium_notices_present = (Test-Path -LiteralPath (Join-Path $InstallDir 'LICENSES.chromium.html'))
+}
+$report.results.license = $license
+$licenseOk = $license.product_present -and $license.noncommercial -and $license.no_redistribution -and $license.not_mit_product -and $license.third_party_present -and $license.third_party_has_electron_mit -and $license.chromium_notices_present
+Add-Step 'license-in-payload' $licenseOk "product=$($license.product_present) noncommercial=$($license.noncommercial) noRedistribution=$($license.no_redistribution) notMIT=$($license.not_mit_product) thirdParty=$($license.third_party_present) electronMIT=$($license.third_party_has_electron_mit) chromium=$($license.chromium_notices_present)"
 Add-Step 'epipe-fix-in-payload' ($epipe.runtime_isBrokenPipeError -and $epipe.runtime_epipe_handler -and $epipe.logging_consoleBroken) "runtime.js isBrokenPipeError=$($epipe.runtime_isBrokenPipeError) EPIPE=$($epipe.runtime_epipe_handler) logging.consoleBroken=$($epipe.logging_consoleBroken)"
 Add-Step 'unity-webgl-payload-installed' ($unity.index_html -and $unity.wasm -gt 0 -and $unity.data -gt 0 -and $unity.loader -gt 0 -and $unity.framework -gt 0 -and $unity.bytes -gt 10MB) "index=$($unity.index_html) wasm=$($unity.wasm) data=$($unity.data) loader=$($unity.loader) framework=$($unity.framework) size=$([math]::Round($unity.bytes/1MB,1))MB"
 
@@ -229,6 +244,28 @@ $ui = [ordered]@{
 }
 $report.results.ui_fixes = $ui
 $uiOk = $ui.unity_selection_module -and $ui.hierarchy_module -and $ui.detail_panel -and $ui.toggle_buttons -and $ui.relation_detail_marker -and $ui.relation_hierarchy_marker -and $ui.hierarchy_section_marker -and $ui.unity_select_bridge -and $ui.atlas_select_handler -and $ui.hierarchy_child_tag
+# v0.4.0 Unity 6 + URP WebGL 构建检查（版本/URP/链连线/整链高亮/错误/体积）
+$unityInfoPath = Join-Path $unityDir 'fca-webgl-build-info.json'
+$unityInfoRaw = if (Test-Path -LiteralPath $unityInfoPath) { [System.IO.File]::ReadAllText($unityInfoPath) } else { '' }
+$unityInfo = $null
+try { if ($unityInfoRaw) { $unityInfo = $unityInfoRaw | ConvertFrom-Json } } catch { }
+$unityFeatures = if ($unityInfo -and $unityInfo.features) { @($unityInfo.features) } else { @() }
+$unityVersion = if ($unityInfo) { [string]$unityInfo.unity_version } else { '' }
+$v040 = [ordered]@{
+  info_present = [bool]$unityInfo
+  unity_version = $unityVersion
+  built_at_utc = $(if ($unityInfo) { [string]$unityInfo.built_at_utc } else { $null })
+  total_bytes = $(if ($unityInfo -and $unityInfo.total_bytes) { [long]$unityInfo.total_bytes } else { 0 })
+  total_errors = $(if ($unityInfo -and $unityInfo.PSObject.Properties.Name -contains 'total_errors') { [int]$unityInfo.total_errors } else { -1 })
+  is_unity6 = ($unityVersion -match '^6000\.')
+  urp_marker = (($unityInfoRaw -match '(?i)urp') -or (@($unityFeatures | Where-Object { $_ -match '(?i)urp' }).Count -gt 0))
+  chain_marker = (($unityInfoRaw -match '(?i)chain[-_]?links') -or (@($unityFeatures | Where-Object { $_ -match '(?i)chain[-_]?links' }).Count -gt 0))
+  highlight_marker = (($unityInfoRaw -match '(?i)highlight') -or (@($unityFeatures | Where-Object { $_ -match '(?i)highlight' }).Count -gt 0))
+  features = (@($unityFeatures) -join ',')
+}
+$report.results.unity_6_urp = $v040
+$v040Ok = $v040.info_present -and $v040.is_unity6 -and $v040.urp_marker -and $v040.chain_marker -and $v040.highlight_marker -and $v040.total_errors -eq 0 -and $v040.total_bytes -gt 20MB
+Add-Step 'unity-6-urp' $v040Ok "unity_version=$($v040.unity_version) unity6=$($v040.is_unity6) urp=$($v040.urp_marker) chain=$($v040.chain_marker) highlight=$($v040.highlight_marker) built_at=$($v040.built_at_utc) bytes=$($v040.total_bytes) errors=$($v040.total_errors)"
 Add-Step 'ui-fixes-in-payload' $uiOk "modules=$($ui.unity_selection_module -and $ui.hierarchy_module -and $ui.detail_panel) toggle=$($ui.toggle_buttons) relationDetail=$($ui.relation_detail_marker) relationHierarchy=$($ui.relation_hierarchy_marker) hierarchySection=$($ui.hierarchy_section_marker) unitySelect=$($ui.unity_select_bridge) atlasHandler=$($ui.atlas_select_handler) childTag=$($ui.hierarchy_child_tag)"
 
 # DSH plugin tgz

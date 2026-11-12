@@ -1,9 +1,9 @@
-# FCA Memory Atlas — Unity Nebula Renderer
+﻿# FCA Memory Atlas — Unity Nebula Renderer
 # Static self-check for the Unity project (used while no Unity Editor is available):
 #   - required files present
 #   - C# / Shader brace + paren balance (string/comment aware)
 #   - no C# 10+ syntax that Unity 6's C# 9 compiler would reject
-#   - no URP/HDRP references (project is Built-in Render Pipeline)
+#   - Unity 6 + URP 17.0.3 references / URP asset setup / shader pass tags (task-20)
 #   - JSON validity (manifest + sample graph)
 #   - sample graph contains workspace:<label> tags for arm grouping
 #   - workspace shader uniforms / editor entry points exist
@@ -180,14 +180,43 @@ foreach ($file in $csFiles) {
 if ($syntaxFailures -eq 0) { Ok '无 C# 10+ 语法（file-scoped namespace / record / raw string 等）' }
 
 # ---------------------------------------------------------------------------
-# 4) Built-in RP: no URP/HDRP references
+# 4) Unity 6 + URP (task-20): package, assets/volume setup, shader pass tags
 # ---------------------------------------------------------------------------
-$pipelineHits = Select-String -Path ($csFiles + $shaderFiles).FullName -Pattern 'Universal\s*RenderPipeline|UnityEngine\.Rendering\.Universal|HDRenderPipeline|ScriptableRenderPipeline' -AllMatches -ErrorAction SilentlyContinue
-if ($pipelineHits) {
-    Fail "发现 SRP（URP/HDRP）引用，但本项目固定 Built-in RP: $($pipelineHits[0].Path):$($pipelineHits[0].LineNumber)"
+$manifestPath = Join-Path $ProjectRoot 'Packages\manifest.json'
+$manifestText = Get-Content $manifestPath -Raw
+if ($manifestText -match 'com\.unity\.render-pipelines\.universal"\s*:\s*"17\.0\.3"') {
+    Ok 'URP 17.0.3 依赖存在（Unity 6 内置包）'
 }
 else {
-    Ok '无 URP/HDRP 依赖（Built-in Render Pipeline）'
+    Fail 'Packages/manifest.json 缺少 com.unity.render-pipelines.universal@17.0.3'
+}
+$urpSetupPath = Join-Path $ProjectRoot 'Assets\Editor\URPSetup.cs'
+if (Test-Path $urpSetupPath) {
+    $urpText = Get-Content $urpSetupPath -Raw
+    if ($urpText -match 'UniversalRenderPipelineAsset' -and $urpText -match 'UniversalAdditionalCameraData' -and $urpText -match 'VolumeProfile') {
+        Ok 'URPSetup.cs：URP asset/renderer/camera data/volume profile 创建逻辑存在'
+    }
+    else {
+        Fail 'URPSetup.cs 缺少 URP asset/camera/volume 创建逻辑'
+    }
+}
+else {
+    Fail 'Assets/Editor/URPSetup.cs 缺失（Unity 6 URP 必需）'
+}
+$urpShaders = @('NebulaVolume.shader', 'NodeStar.shader', 'EdgeFilament.shader')
+$missingTags = @()
+foreach ($shaderName in $urpShaders) {
+    $text = Get-Content (Join-Path $ProjectRoot ('Assets\Shaders\' + $shaderName)) -Raw
+    if ($text -notmatch 'LightMode"\s*=\s*"UniversalForward"') { $missingTags += $shaderName }
+}
+if ($missingTags.Count -eq 0) { Ok 'URP 自定义 shader：LightMode=UniversalForward pass 标签存在（3 个）' }
+else { Fail ('URP shader 缺少 UniversalForward pass 标签: ' + ($missingTags -join ', ')) }
+$fieldRenderer = Get-Content (Join-Path $ProjectRoot 'Assets\Scripts\Render\NebulaFieldRenderer.cs') -Raw
+if ($fieldRenderer -match 'currentRenderPipeline\s*!=\s*null' -and $fieldRenderer -match 'Graphics\.Blit\(source, destination\)') {
+    Ok 'NebulaFieldRenderer：URP 下禁用 Built-in OnRenderImage 后处理路径'
+}
+else {
+    Fail 'NebulaFieldRenderer 未在 SRP 下跳过 OnRenderImage 自定义后处理'
 }
 
 # ---------------------------------------------------------------------------
@@ -354,5 +383,6 @@ if ($failures.Count -gt 0) {
     foreach ($f in $failures) { Write-Host "  - $f" -ForegroundColor Red }
     exit 1
 }
-Write-Host '静态自检全部通过（已由 Unity 2022.3 batchmode 编译/构建验证，见 docs/UNITY_NEBULA.md §9）。'
+Write-Host '静态自检全部通过（Unity 6 + URP WebGL 构建验证见 docs/UNITY_NEBULA.md §12）。'
 exit 0
+

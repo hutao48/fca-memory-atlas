@@ -1,4 +1,4 @@
-﻿; FCA Memory Atlas — NSIS installer (Alpha 0.1)
+; FCA Memory Atlas — NSIS installer (Alpha 0.1)
 ; 由 installer/build.js 调用：
 ;   makensis /V2 /INPUTCHARSET UTF8 /DVERSION= /DPRODUCTVERSION= /DPAYLOAD= /DOUTFILE= /DCOMPRESS= /DBUILT_AT= /DAPIVERSION= installer.nsi
 ;
@@ -318,6 +318,9 @@ Section "FCA Memory Atlas (required)" SecMain
   WriteINIStr "$INSTDIR\install-report.ini" "install" "runtime_url" "http://127.0.0.1:${RUNTIME_PORT}"
   WriteINIStr "$INSTDIR\install-report.ini" "install" "uninstaller" "$INSTDIR\Uninstall.exe"
   WriteINIStr "$INSTDIR\install-report.ini" "install" "data_policy" "uninstall keeps data dir by default; prompt asks before deletion"
+WriteINIStr "$INSTDIR\install-report.ini" "install" "license" "$INSTDIR\LICENSE"
+WriteINIStr "$INSTDIR\install-report.ini" "install" "license_type" "Source-Available (Non-Commercial, No Redistribution of Modifications)"
+WriteINIStr "$INSTDIR\install-report.ini" "install" "third_party_license" "$INSTDIR\LICENSE-THIRD-PARTY.txt"
   ${If} ${FileExists} "$INSTDIR\unity\FCANebulaWebGL\index.html"
     WriteINIStr "$INSTDIR\install-report.ini" "install" "unity_nebula_webgl" "$INSTDIR\unity\FCANebulaWebGL\index.html"
   ${Else}
@@ -448,6 +451,7 @@ Section "Uninstall"
   Delete "$INSTDIR\*.md"
   Delete "$INSTDIR\LICENSE"
   Delete "$INSTDIR\LICENSES.chromium.html"
+  Delete "$INSTDIR\LICENSE-THIRD-PARTY.txt"
   Delete "$INSTDIR\version"
   Delete "$INSTDIR\install-report.ini"
   Delete "$INSTDIR\Uninstall.exe"

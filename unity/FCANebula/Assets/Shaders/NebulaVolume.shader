@@ -1,7 +1,8 @@
-// FCA Memory Atlas — Unity Nebula Renderer (Built-in Render Pipeline)
+// FCA Memory Atlas — Unity 6 / URP Nebula Renderer
 // FCA/NebulaVolume: procedural volumetric nebula rendered on a camera-attached fullscreen
 // quad (Background queue). Logarithmic spiral arms follow WorkspaceSpiralLayout exactly.
 // Each workspace arm has its own emission colour; FBM + domain warp gives gas/dust structure.
+// Task-20: pass uses LightMode=UniversalForward so URP renders the fullscreen quad.
 
 Shader "FCA/NebulaVolume"
 {
@@ -33,6 +34,7 @@ Shader "FCA/NebulaVolume"
 
         Pass
         {
+            Tags { "LightMode"="UniversalForward" }
             CGPROGRAM
             #pragma vertex vert
             #pragma fragment frag

@@ -10,6 +10,7 @@
 using System;
 using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.Rendering;
 
 namespace FCANebula
 {
@@ -271,8 +272,9 @@ namespace FCANebula
                     _lastClickTime = Time.unscaledTime;
                     if (_app != null && _app.Hierarchy != null)
                     {
-                        // A parent toggles its folded sub-agent children; other nodes select.
-                        _app.Hierarchy.HandleNodeClick(hit);
+                        // A parent toggles its folded sub-agent children; every node also
+                        // highlights its whole memory chain (task-19).
+                        _app.HandleNodeClick(hit);
                     }
                     else
                     {
@@ -384,7 +386,7 @@ namespace FCANebula
         void DrawStatusPanel()
         {
             float width = 330f;
-            Rect rect = new Rect(14f, 14f, width, 188f);
+            Rect rect = new Rect(14f, 14f, width, 208f);
             AddPanel(rect, new Color(0.015f, 0.025f, 0.055f, 0.72f), new Color(0.30f, 0.62f, 0.86f, 0.55f));
 
             GUILayout.BeginArea(new Rect(rect.x + 12f, rect.y + 9f, rect.width - 24f, rect.height - 18f));
@@ -393,9 +395,9 @@ namespace FCANebula
             GUILayout.Label("FCA NEBULA", _titleStyle);
             GUILayout.FlexibleSpace();
 #if UNITY_WEBGL && !UNITY_EDITOR
-            GUILayout.Label("Unity · WebGL", _smallStyle);
+            GUILayout.Label(GraphicsSettings.currentRenderPipeline != null ? "Unity 6 · URP" : "Unity · WebGL", _smallStyle);
 #else
-            GUILayout.Label("Unity · Built-in", _smallStyle);
+            GUILayout.Label(GraphicsSettings.currentRenderPipeline != null ? "Unity 6 · URP" : "Unity · Built-in", _smallStyle);
 #endif
             GUILayout.EndHorizontal();
             GUILayout.Label("工作区旋臂星云 · 真实 Runtime 数据", _subtitleStyle);
@@ -449,6 +451,18 @@ namespace FCANebula
             {
                 GUILayout.Label("布局 " + _app.CurrentLayoutSignature + " · FPS " + _fps.ToString("0"), _smallStyle);
             }
+            if (_edges != null && _edges.ChainLinkCount > 0)
+            {
+                GUILayout.Label("链连线 金色: " + _edges.ChainLinkCount + " / " + _edges.ChainPairsExpected +
+                                (_edges.ChainPairsMissing > 0 ? " · 缺 " + _edges.ChainPairsMissing : " · 全部关联节点对可见"),
+                                _smallStyle);
+            }
+            if (_app != null && _app.HighlightedChainSize > 1)
+            {
+                GUI.color = ThemePalette.HierarchyGoldSrgb();
+                GUILayout.Label("记忆链 " + _app.HighlightedChainSize + " 节点 · 已高亮（点击空白取消）", _labelStyle);
+                GUI.color = Color.white;
+            }
             GUILayout.EndArea();
         }
 
@@ -487,13 +501,14 @@ namespace FCANebula
             }
             int visibleArms = Mathf.Min(layout.Arms.Count, 8);
             float rowHeight = 21f;
-            float height = 40f + visibleArms * rowHeight + 26f;
+            float height = 40f + 18f + visibleArms * rowHeight + 56f;
             float width = 296f;
             Rect rect = new Rect(Screen.width - width - 14f, 14f, width, height);
             AddPanel(rect, new Color(0.015f, 0.025f, 0.055f, 0.72f), new Color(0.30f, 0.62f, 0.86f, 0.55f));
             GUILayout.BeginArea(new Rect(rect.x + 12f, rect.y + 8f, rect.width - 24f, rect.height - 16f));
             GUILayout.Label("工作区 · 旋臂图例", _labelStyle);
             GUILayout.Label("每一条旋臂 = 一个 workspace:<label>", _smallStyle);
+            GUILayout.Label("金色细线 = 同一条记忆链（同臂连续排布）", _smallStyle);
             for (int i = 0; i < visibleArms; i++)
             {
                 LayoutArm arm = layout.Arms[i];
@@ -548,6 +563,18 @@ namespace FCANebula
                     }
                 }
                 GUILayout.Label("子 Agent 会话记忆 · 父节点: " + parentTitle, _smallStyle);
+            }
+
+            // task-19: chain highlight affordance.
+            if (selected.ChainSize > 1)
+            {
+                GUI.color = ThemePalette.HierarchyGoldSrgb();
+                GUILayout.Label("记忆链 " + selected.ChainSize + " 节点 · 单击已高亮整链（点击空白取消）", _smallStyle);
+                GUI.color = Color.white;
+            }
+            else
+            {
+                GUILayout.Label("孤立节点（无同链节点）", _smallStyle);
             }
 
             if (source.Tags != null && source.Tags.Length > 0)
@@ -643,7 +670,7 @@ namespace FCANebula
 
         void DrawControlHints()
         {
-            string text = "拖拽旋转 · 滚轮缩放 · 左键点选（父节点展开/收起子 Agent） · E 层级 · R 刷新 · L 标签 · 1-4 画质 · 0 关特效 · F 聚焦 · Esc 取消 · H 隐藏 HUD";
+            string text = "拖拽旋转 · 滚轮缩放 · 左键点选/单击高亮整条记忆链 · 父节点单击展开/收起子 Agent · E 层级 · R 刷新 · L 标签 · 1-4 画质 · 0 关特效 · F 聚焦 · Esc 取消 · H 隐藏 HUD";
             float width = Mathf.Min(Screen.width - 28f, 900f);
             Rect rect = new Rect(Screen.width - width - 14f, Screen.height - 30f, width, 20f);
             GUI.color = new Color(0.55f, 0.68f, 0.85f, 0.75f);
@@ -758,17 +785,23 @@ namespace FCANebula
             string meta = (node.IsEntity ? "实体" : "记忆") + " · " + node.Source.Type + " · workspace " +
                           (node.Source.WorkspaceIsDefault ? "default" : node.ArmLabel);
             string hierarchyHint = null;
+            if (node.ChainSize > 1)
+            {
+                hierarchyHint = "记忆链 " + node.ChainSize + " 节点 · 单击高亮整链";
+            }
             if (node.IsParent && node.ChildIds.Count > 0)
             {
                 bool expanded = _app != null && _app.Hierarchy != null && _app.Hierarchy.IsExpanded(node.Id);
-                hierarchyHint = "▸ 子节点 " + node.ChildIds.Count + (expanded ? " · 已展开（点击收起）" : " · 点击展开");
+                string childHint = "▸ 子节点 " + node.ChildIds.Count + (expanded ? " · 已展开（点击收起）" : " · 点击展开");
+                hierarchyHint = hierarchyHint == null ? childHint : hierarchyHint + " · " + childHint;
             }
             else if (node.IsHierarchyChild)
             {
-                hierarchyHint = "子 Agent 会话记忆";
+                hierarchyHint = hierarchyHint == null ? "子 Agent 会话记忆" : hierarchyHint + " · 子 Agent 会话记忆";
             }
             float width = 330f;
             float height = hierarchyHint == null ? 46f : 64f;
+            if (node.ChainSize > 1 && node.IsParent) height += 18f;
             Rect rect = new Rect(mouse.x + 16f, mouse.y + 14f, width, height);
             if (rect.x + rect.width > Screen.width)
             {

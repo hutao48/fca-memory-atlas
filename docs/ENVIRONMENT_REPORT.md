@@ -1,7 +1,7 @@
 # FCA Alpha 0.1 — 阶段 0 环境调查报告
 
 - 项目：FCA Memory Atlas / FCA DSH Plugin / FCA Local Runtime
-- 版本：v0.3.0（Alpha 0.1 阶段报告，经 v0.2.0/v0.2.1/v0.3.0 增量更新；见 §7）
+- 版本：v0.4.0（Alpha 0.1 阶段报告，经 v0.2.0/v0.2.1/v0.3.0/v0.4.0 增量更新；见 §7）
 - 调查时间：2026-11-12（2026-11-12 打包/交付阶段修正 Node 路径、NSIS 构建环境与 Electron 沙箱差异，见 §7）
 - 调查主机：用户本机（Windows 11 x64）
 - 结论：**真实 DSH 插件 SDK 可用**（Cordis 插件体系，已在本机 profile 中安装并运行多个第三方 bundle）。桌面端采用 Electron + WebGL2；Runtime 采用 Node 24 + 内置 `node:sqlite`（零第三方依赖、可离线运行）；不依赖 Python/PyTorch 完成 Alpha 0.1 核心功能（GPU 信息通过 `nvidia-smi` 探测并展示，渲染 GPU 加速由 WebGL 提供）。

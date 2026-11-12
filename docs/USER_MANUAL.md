@@ -1,9 +1,9 @@
-# FCA Memory Atlas 用户手册（v0.3.0 / Windows x64）
+# FCA Memory Atlas 用户手册（v0.4.0 / Windows x64）
 
 - 产品：FCA Memory Atlas（FCA 认知记忆地图）
-- 版本：v0.3.0（桌面/Runtime/安装包 0.3.0；DSH 插件 0.3.1；Runtime API v1）
+- 版本：v0.4.0（桌面/Runtime/安装包 0.4.0；DSH 插件 0.3.1；Runtime API v1）
 - 平台：Windows 10/11 x64
-- 安装包：`FCA-Memory-Atlas-Setup-0.3.0-x64.exe`（含 Unity WebGL 星云组件 + DSH 插件 0.3.1 tgz）
+- 安装包：`FCA-Memory-Atlas-Setup-0.4.0-x64.exe`（含 Unity WebGL 星云组件 + DSH 插件 0.3.1 tgz）
 - 本文档适用于**安装版**（安装包安装后的 `FCA Memory Atlas.exe`）；开发版（源码 + `.cache\electron-dist`）用法见 `README.md` 与 `docs/ARCHITECTURE.md`。
 
 > Alpha 0.1 是内部评估版本：软件按“现状”提供，不承诺数据不丢失。重要的记忆数据请定期使用“数据管理 → 备份”或手动复制数据目录。

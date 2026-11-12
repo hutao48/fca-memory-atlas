@@ -36,6 +36,7 @@ namespace FCANebula
 
         public LayoutNode HoveredNode { get; private set; }
         public LayoutNode SelectedNode { get; private set; }
+        public string HighlightedChainKey { get; private set; }
         public int RenderNodeCount { get { return _layout != null ? _layout.NodeCount : 0; } }
         public event Action<LayoutNode> SelectionChanged;
 
@@ -184,7 +185,10 @@ namespace FCANebula
 
                 bool isSelected = SelectedNode != null && ReferenceEquals(SelectedNode, node);
                 bool isHovered = HoveredNode != null && ReferenceEquals(HoveredNode, node);
-                float brightness = (0.90f + 1.5f * node.Brightness) * (isSelected ? 1.25f : 1f);
+                bool isChainMember = !string.IsNullOrEmpty(HighlightedChainKey) && node.ChainSize > 1
+                    && string.Equals(node.ChainKey, HighlightedChainKey, System.StringComparison.Ordinal);
+                if (isChainMember) worldSize *= 1.10f;
+                float brightness = (0.90f + 1.5f * node.Brightness) * (isSelected ? 1.25f : 1f) * (isChainMember ? 1.18f : 1f);
                 brightness *= 0.35f + 0.65f * node.VisualVisibility;
                 Color tint = ThemePalette.ToShader(node.TintSrgb);
                 // Vertex colour alpha carries the deterministic twinkle phase.
@@ -192,7 +196,9 @@ namespace FCANebula
                 Color vertexColor = new Color(tint.r * brightness, tint.g * brightness, tint.b * brightness, phase);
                 // extra.y: 0 normal, 1 hovered, 2 expandable parent, 3 parent+hovered
                 float extraY = (node.IsParent ? 2f : 0f) + (isHovered ? 1f : 0f);
-                Vector2 extra = new Vector2(isSelected ? 1f : 0f, extraY);
+                // extra.x: 0 normal, 1 primary selection, 2 chain-member highlight (task-19)
+                float extraX = isSelected ? 1f : (isChainMember ? 2f : 0f);
+                Vector2 extra = new Vector2(extraX, extraY);
 
                 _vertexList.Add(center - right - up);
                 _vertexList.Add(center + right - up);
@@ -281,8 +287,15 @@ namespace FCANebula
             return best;
         }
 
-        public void SetHovered(LayoutNode node)
+        /// <summary>Whole-chain highlight (task-19): all members of the clicked node's chain glow.</summary>
+        public void SetHighlightedChain(string chainKey)
         {
+            string key = chainKey ?? "";
+            if (string.Equals(HighlightedChainKey, key, System.StringComparison.Ordinal)) return;
+            HighlightedChainKey = key;
+        }
+
+        public void SetHovered(LayoutNode node)        {
             HoveredNode = node;
         }
 

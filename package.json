@@ -1,6 +1,6 @@
 {
     "name":  "fca-memory-atlas",
-    "version":  "0.3.0",
+    "version":  "0.4.0",
     "private":  true,
     "description":  "FCA Memory Atlas — local cognitive memory infrastructure: Windows desktop app + FCA Local Runtime + official DSH plugin",
     "type":  "module",

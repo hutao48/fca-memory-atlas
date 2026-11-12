@@ -23,6 +23,7 @@ using System.IO;
 using UnityEditor;
 using UnityEditor.Build.Reporting;
 using UnityEngine;
+using UnityEngine.Rendering;
 
 namespace FCANebula.EditorTools
 {
@@ -148,6 +149,8 @@ namespace FCANebula.EditorTools
                 ProjectBootstrap.EnsureMaterials();
                 ConfigureCommonPlayerSettings();
                 ConfigureWebGLPlayerSettings();
+                // Task-20: Unity 6 URP — create/assign pipeline assets before building.
+                URPSetup.ConfigureProject();
                 ProjectBootstrap.EnsureSceneExists();
 
                 if (!EnsureBuildTarget(BuildTarget.WebGL))
@@ -216,7 +219,9 @@ namespace FCANebula.EditorTools
             // Compression: Disabled keeps the Electron local static server dead simple
             // (no Content-Encoding / .br / .gz MIME handling, no decompression fallback JS).
             PlayerSettings.WebGL.compressionFormat = WebGLCompressionFormat.Disabled;
-            PlayerSettings.WebGL.memorySize = 512;
+#if !UNITY_6000_0_OR_NEWER
+            PlayerSettings.WebGL.memorySize = 512; // removed in Unity 6 (automatic WebGL memory)
+#endif
             PlayerSettings.WebGL.dataCaching = true;
             PlayerSettings.WebGL.exceptionSupport = WebGLExceptionSupport.FullWithoutStacktrace;
             PlayerSettings.WebGL.template = "PROJECT:FCANebula";
@@ -246,8 +251,20 @@ namespace FCANebula.EditorTools
                     "index.html?runtime-url=<http://127.0.0.1:17860|/relative-base>&token=<bearer>&quality=high&view=0|1|2&poll=3&auto-rotate=0&labels=0";
                 info.bridge_contract =
                     "Unity -> page: window.__FCA_NEBULA_STATE__, window.__FCA_READY__, window.__FCA_NEBULA_SELECTED__, window message types fca-unity-ready/fca-unity-state/fca-unity-select; " +
-                    "page -> Unity: FCA_NEBULA.postCommand('view:0|1|2'|'quality:high'|'refresh'|'labels:0|1'|'select:<nodeId>'|'select:clear'|'focus:<nodeId>'|'expand:<nodeId>'|'collapse:<nodeId>'), " +
+                    "page -> Unity: FCA_NEBULA.postCommand('view:0|1|2'|'quality:high'|'refresh'|'labels:0|1'|'select:<nodeId>'|'select:clear'|'focus:<nodeId>'|'highlight-chain:<nodeId>'|'select-chain:<nodeId>'|'expand:<nodeId>'|'collapse:<nodeId>'), " +
                     "and cross-origin parent message {type:'fca-unity-command',command} with {type:'fca-unity-command-ack',command,ok}.";
+                // task-19 packaging assertions: machine-readable chain/highlight feature flags.
+                // task-20: v0.4.0 = Unity 6 + URP WebGL.
+                info.features = new string[] { "urp", "chain-links", "chain-same-arm", "chain-highlight", "hierarchy-fold", "selection-bridge" };
+                info.urp = true;
+                info.chain_links = true;
+                info.chain_same_arm = true;
+                info.chain_highlight = true;
+                info.hierarchy_fold = true;
+                info.selection_bridge = true;
+                info.render_pipeline = "urp";
+                RenderPipelineAsset pipeline = GraphicsSettings.defaultRenderPipeline;
+                info.urp_asset = pipeline != null ? pipeline.name : "";
                 info.note =
                     "Runtime JSON is fetched directly from the FCA Runtime over HTTP (CORS enabled). The bearer token is injected into the iframe URL by Electron and is never written to disk/logs.";
                 File.WriteAllText(Path.Combine(outputDirectory, "fca-webgl-build-info.json"), JsonUtility.ToJson(info, true));
@@ -362,6 +379,17 @@ namespace FCANebula.EditorTools
             public string scene;
             public string query_contract;
             public string bridge_contract;
+            // task-19: machine-readable feature markers (installer/verify-installed.ps1 asserts these)
+            public string[] features;
+            public bool urp;
+            public bool chain_links;
+            public bool chain_same_arm;
+            public bool chain_highlight;
+            public bool hierarchy_fold;
+            public bool selection_bridge;
+            // task-20: Unity 6 URP build metadata
+            public string render_pipeline;
+            public string urp_asset;
             public string note;
         }
     }

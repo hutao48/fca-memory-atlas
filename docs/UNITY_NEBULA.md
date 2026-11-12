@@ -8,13 +8,13 @@
 
 | 项 | 值 |
 |---|---|
-| Unity 版本要求 | **Unity 2022.3 LTS**（实测 `2022.3.62f3c1`），含 **Windows Build Support** + **WebGL Build Support** 模块 |
-| 渲染管线 | **Built-in Render Pipeline（3D 模板）**，**不需要 URP/HDRP 包** |
+| Unity 版本要求 | **Unity 6 LTS `6000.0.23f1`**（`6000.0.23f1 (1c4764c07fb4)`），含 **WebGL Build Support** 模块（v0.4.0 起；v0.3.x 历史版本为 Unity 2022.3，见 §12） |
+| 渲染管线 | **Universal Render Pipeline (URP) 17.0.3**（Unity 6 编辑器内置包，无需网络下载）+ Global Volume 后处理（Bloom/ACES/Color/Vignette/FilmGrain） |
 | 语言/运行时 | C# 9 / .NET Standard 2.1；JSON 解析用 Unity 内置 `JsonUtility`（不依赖 `System.Text.Json` 或任何第三方库） |
 | 数据源 | 本机 FCA Runtime `GET /api/v1/graph`（Bearer token）+ `GET /api/v1/state` + 点击时 `GET /api/v1/memory/{id}` |
-| 主构建产物（Electron 内嵌） | **`artifacts/unity/FCANebulaWebGL/`**（`index.html` + `Build/*.wasm/.data/.framework.js` + TemplateData，约 **24.9 MB**，WebGL2） |
+| 主构建产物（Electron 内嵌） | **`artifacts/unity/FCANebulaWebGL/`**（`index.html` + `Build/*.wasm/.data/.framework.js` + TemplateData，Unity 6/URP 约 **66 MB**，WebGL2） |
 | 开发/备用构建 | `artifacts/unity/FCANebula/FCANebula.exe`（Windows standalone，独立窗口） |
-| 验收截图 | standalone：`artifacts/unity/shots-final/`（3 张）；WebGL：`artifacts/unity/webgl-shots/`（3 张 + manifest + 控制台日志） |
+| 验收截图 | standalone：`artifacts/unity/shots-final/`（历史 3 张）；WebGL：`artifacts/unity/webgl-shots/`（view-0/1/2 + chain/hierarchy 7 张 + manifest + 控制台日志） |
 
 ---
 
@@ -293,6 +293,10 @@ emission += armColor·density
 
 **折叠层级（附加层，不移动父节点）**：子会话节点默认折叠隐藏；点击父节点（tags 含 `children:*` 或存在 spawned_subagent 出边）时子节点围绕父节点做环形扇出 + 展开动画 + 金色虚线 filament，再次点击父节点/点空白收起；HUD 显示“子节点 N / 已展开”，子节点可点击查看真实 title/正文摘要。父节点在原臂位置从不因展开而改变。
 
+**链连线（task-19，纯渲染层，不改布局/节点坐标）**：`EdgeRenderer` 为每条链的可见成员按臂上 rank 排序后，相邻成员之间生成**金色/暖白链连线**——沿现有臂螺旋中心线采样（`BuildSameArmPath`），所以只沿本臂弯曲、绝不横穿其它旋臂；普通 relation 边若两端同链则复用为链样式，避免重复线条；折叠子节点不画线，展开后父→子由金色虚线 filament 承担（并计入 `chainEdges`）。manifest 断言 `chainPairsExpected` / `chainPairsMissing`（真实数据 10/10，缺 0）。
+
+**单击整链高亮（task-19）**：单击任一节点，若其链成员 >1，则整条链全部节点获得暖金光晕/描边/亮度增强（选中节点最强），链连线加亮并流光脉冲；HUD/详情面板显示“记忆链 N 节点 · 已高亮（点击空白取消）”；再次点同一非父节点或点空白取消；孤立节点仍只高亮自身。高亮不改变任何节点位置，也**不会自动展开**折叠子节点（展开仍由父节点点击控制）；选中事件通过 `fca-unity-select` 回推，payload 增加 `chainIds`/`chainSize`（向后兼容）。
+
 ---
 
 ## 4. 渲染实现（Built-in RP）
@@ -303,7 +307,7 @@ emission += armColor·density
 | 体积星云 | 相机挂载全屏 quad（Background 队列，近平面覆盖），逐像素 raymarch 球体包围盒；`_Steps/_Octaves` 由画质档位驱动 | `NebulaVolume.shader` + `NebulaFieldRenderer.cs` |
 | Bloom/合成 | `OnRenderImage`：预过滤（阈值+膝）→ 1/2 分辨率分离高斯（迭代次数随画质）→ 合成（曝光、ACES、暗角、颗粒、抖动） | `NebulaPost.shader` |
 | 节点星点 | 每帧把所有节点合并为一个动态 billboard Mesh（4 顶点/节点，一次 additive draw call）；颜色/亮度/选中/悬停/闪烁相位写入顶点色与 TEXCOORD1 | `NodeStar.shader` + `NodeRenderer.cs` |
-| 关系光丝 | 全边合并为一个动态 ribbon Mesh；**同臂边沿现有臂螺旋中心线采样**、**跨臂边绕核心并在低亮度下连接**；父→子层级为虚线金色 filament | `EdgeFilament.shader` + `EdgeRenderer.cs` |
+| 关系光丝 | 全边合并为一个动态 ribbon Mesh；**同臂边沿现有臂螺旋中心线采样**、**跨臂边绕核心并在低亮度下连接**；父→子层级为虚线金色 filament；**同链相邻成员为金色链连线（task-19，选中链时加亮脉冲）** | `EdgeFilament.shader` + `EdgeRenderer.cs` |
 | HUD | IMGUI（零额外包依赖），系统动态中文字体（Microsoft YaHei 等），失败/样例横幅 | `UiOverlay.cs` |
 | 相机 | 绕 Z 轴轨道（银盘在 XY 平面），阻尼、滚轮缩放、预设机位（overview/arm-closeup/top-down） | `NebulaCameraRig.cs` |
 
@@ -604,6 +608,9 @@ renderer 校验 `event.source === iframe.contentWindow` 后才处理；不使用
 | **task-14 链式布局** | manifest `chainCount/chainMultiNodeCount/chainSummary/chainSameArmAll` | ✅ 同链同臂断言 true（见 §11.3） |
 | **task-14 层级展开** | `webgl-hierarchy-before.png` / `webgl-hierarchy-after.png`；manifest `hierarchy.before/after`（expandedParents/visibleChildren） | ✅ 真实 Runtime 层级（父→子展开） |
 | **task-17 选择桥接** | manifest `selection_test`（page→Unity select + Unity→page `fca-unity-select` + clear） | ✅ passed=true；desktop-integration Electron 8/8 联调通过 |
+| **task-19 链连线** | manifest `chain_edges=11 / chain_pairs_expected=11 / chain_pairs_missing=0`；`webgl-chain-closeup.png` | ✅ 同链相邻成员全部有可见金色链连线（沿臂中心线） |
+| **task-19 整链高亮** | manifest `chain_test.passed=true`（12 节点链快照）；`webgl-chain-highlight.png`；selection payload 含 `chainIds`/`chainSize` | ✅ 单击链成员 → 整链 12 节点高亮 + 链连线脉冲 |
+| **task-19 关联边覆盖** | manifest `related_pairs=1 / related_pairs_missing_edges=1`（折叠子节点导致的隐藏 relation 端点，如实记录） | ✅ 可见节点对无缺边；隐藏子节点不画线 |
 | Windows standalone（开发/备用） | `artifacts/unity/FCANebula/FCANebula.exe` | ✅ 构建成功（见 §9） |
 | standalone 真实数据截图 ×3 | `artifacts/unity/shots-final/screenshot-{1,2,3}-*.png` + `screenshots-manifest.json` | ✅（见 §9） |
 | 脱敏样例 | `artifacts/unity/sample-graph.json`（与 StreamingAssets 同份） | ✅ 已重新导出 |
@@ -620,6 +627,8 @@ renderer 校验 `event.source === iframe.contentWindow` 后才处理；不使用
 | `webgl-view-2.png` | top-down（el≈84°） | 对数螺旋几何形状、每条臂颜色；同臂关系光丝沿臂弯曲 |
 | `webgl-hierarchy-before.png` | 父节点折叠（view 1） | 父记忆（Agent子会话）无子节点、HUD 显示折叠 |
 | `webgl-hierarchy-after.png` | 父节点展开（view 1） | 子 Agent 节点围绕父节点扇出 + 金色虚线 filament + HUD“子节点 N / 已展开” |
+| `webgl-chain-closeup.png` | 同链两节点+链连线特写（view 1） | 金色链连线沿臂中心线可见（`webgl-chain-links.png` 为同图别名） |
+| `webgl-chain-highlight.png` | 单击链成员后整链高亮（view 1） | 链上全部 12 节点光晕/描边 + 链连线加亮脉冲 + HUD“记忆链 12 节点 · 已高亮” |
 
 `webgl-shots-manifest.json` 记录：CDP URL（token 已脱敏）、真实 viewport、Unity 版本、compression、connected/sample、节点/关系/旋臂数、armSummary、layout、WebGL 诊断（tokenProvided / volumeMaterialOk / armCountUniform / emissionScale / marchSteps）、文件列表；`logs/` 含 Unity 控制台日志与浏览器日志（无 token）。
 
@@ -659,6 +668,8 @@ renderer 校验 `event.source === iframe.contentWindow` 后才处理；不使用
 20. **链合并可能过并**：同一 session token 会被合并成一条链（按 Lead 契约），如果 memory-pipeline 给同一 root session 的所有记忆都打同一 `session:<id8>`，这些节点会成为一条超长链并连续排在一条臂上（符合“同链同臂”要求，但臂节点数分布会变化）。
 21. **WebGL 验收截图分进程抓取**：SwiftShader 下同一进程连续抓 top-down 偶发 `Page.captureScreenshot` 超时，脚本改为按机位分批运行并合并 manifest；这是验收工具限制，不影响真实 GPU 浏览器。
 22. **展开动画/选中状态不写入 manifest 截图内容**：层级状态与选中状态由 `webgl-shots-manifest.json` 的 `hierarchy.before/after` 与 `selection_test` 记录，截图本身在 SwiftShader 低画质下采集。
+23. **task-19 链连线计数口径**：`chainEdges` 只统计“可见链相邻成员对”；折叠子节点不画线，因此若一条 runtime relation 指向隐藏子节点，会体现在 `relatedPairsMissingEdges`（当前真实数据 1 条），而展开后父→子由 hierarchy 金色虚线承担并计入 chainEdges；这是“折叠不画不可见线”的预期行为，不是缺陷。
+24. **整链高亮的可见强度受画质影响**：SwiftShader `quality=low`（24 steps）下节点光晕较小、金色描边较弱，HUD 文字与链连线加亮仍可断言；真实 GPU/medium/high 下高亮更明显。链高亮不自动展开子节点（避免误触发布局变化）。
 
 ---
 
@@ -814,6 +825,9 @@ index.html?runtime-url=http://127.0.0.1:17860&token=<bearer>&quality=high&view=0
 
 取消选中：`{"id":null,"selected":false,"clear":true}`（JSON 中 null 字段由 `JsonUtility` 序列化为空字符串；判断以 `clear/selected` 为准）。同一 id 的重复选中会被去重（节流），从 JS `select:<id>` 触发的选中也会回推一次。desktop-integration 已完成 Electron 8/8 真实联调（`artifacts/reports/desktop-ui/real-sync-report.json`）。
 
+task-19 补充字段（向后兼容）：`chainIds`（整条记忆链成员 id 数组，孤立节点为单元素数组）与 `chainSize`（成员数）。示例：
+`{"id":"mem_cfd5…","kind":"memory","title":"子 Agent 会话 · FCA · 3d3bcb2a","chainIds":["mem_cfd5…","…12 个…"],"chainSize":12,"selected":true,"clear":false}`
+
 `payload` 字段（`WebGLBridge.cs`，JSON via `JsonUtility`）：
 
 ```json
@@ -840,6 +854,7 @@ index.html?runtime-url=http://127.0.0.1:17860&token=<bearer>&quality=high&view=0
 | `FCA_NEBULA.refresh()` | 立即拉取 Runtime graph |
 | `FCA_NEBULA.postCommand('labels:0')` | 通用命令通道（`SendMessage("FCA Nebula System","OnJsCommand",cmd)`） |
 | `FCA_NEBULA.select(nodeId)` / `postCommand('select:clear')` | 选中节点 / 清除选中（同时回推 `fca-unity-select`） |
+| `postCommand('highlight-chain:<nodeId>')` / `select-chain:<nodeId>` | task-19 别名：选中该节点并高亮整条记忆链（等同于 select） |
 | `FCA_NEBULA.expand(nodeId)` / `collapse(nodeId)` | 展开/收起父节点的子 Agent 层级 |
 | **父页面 → iframe 命令通道** | 跨源时父页面无法访问 iframe 的 `window.FCA_NEBULA`，模板监听 `message`：`parent.postMessage({type:'fca-unity-command', command:'select:<id>'|'view:1'|'quality:high'|...}, '*')`；iframe 回 `{type:'fca-unity-command-ack', command, ok}` |
 | `FCA_NEBULA.getSelected()` | 最近一次选中 payload |
@@ -850,14 +865,14 @@ index.html?runtime-url=http://127.0.0.1:17860&token=<bearer>&quality=high&view=0
 
 | 项 | 证据 |
 |---|---|
-| 构建 | `D:\FCA\_scratch\unity\webgl-build.log`（Success / 0 errors）；`artifacts/unity/FCANebulaWebGL/fca-webgl-build-info.json`（**final built_at 2026-11-12T16:57:30Z**，含 chain/selection 修改；player 与 16:46 联调构建代码一致，仅 build-info 契约文案更新） |
+| 构建 | `D:\FCA\_scratch\unity\webgl-build.log`（Success / 0 errors）；`artifacts/unity/FCANebulaWebGL/fca-webgl-build-info.json`：**task-19 built_at 2026-11-12T17:27:45Z**（链连线/整链高亮；`features=["chain-links","chain-same-arm","chain-highlight","hierarchy-fold","selection-bridge"]`，`total_bytes=26,240,893`，`total_errors=0`）。注：**该 2022.3 构建为 task-19 功能参考，下一发布目标 v0.4.0 = Unity 6（6000.0.23f1）+ URP 构建将替换它（v0.3.1 已取消）**。 |
 | 静态自检 | `unity/FCANebula/scripts/verify-source.ps1` → 通过（WebGL 模板/jslib/bridge/字体/服务脚本/token 脱敏检查） |
-| 真实数据截图 ×5 | `webgl-view-{0,1,2}.png` + `webgl-hierarchy-{before,after}.png`（1600×966~1000，headless Edge + SwiftShader，quality=low）；同时复制到 `artifacts/unity/shots-final/task14-webgl-*.png` + `task14-evidence.json` 供交付验收 |
-| manifest（几何/链/层级/选择） | `webgl-shots-manifest.json`：`nodes=56/edges=46/arms=5`，`layout="v1|5|default-workspace:7|FCA:35|music:5|大肥鱼帮我赚钱:1|default:8"`（v1 冻结格式）；`align_mean=0.482 / p95=0.862 / max=1.197 ×臂宽`；`chainCount=51 / chainMultiNodeCount=1 / chainSummary="FCA:6" / chainSameArmAll=true`；`hierarchyParents=1/hierarchyChildren=1`，before→after `expandedParents 0→1 / visibleChildren 0→1`；`selection_test.passed=true`（select + clear 事件均收到） |
-| 选择事件示例 | `{"id":"mem_58403…","kind":"memory","title":"Agent 思考节点 · 第 2 回合","memoryType":"procedural","arm":"default-workspace","importance":0.55,"occurredAt":"","selected":true,"clear":false}`；clear：`{"id":"","selected":false,"clear":true}` |
+| 真实数据截图 ×7 | `webgl-view-{0,1,2}.png` + `webgl-hierarchy-{before,after}.png` + `webgl-chain-closeup.png`（别名 `webgl-chain-links.png`）+ `webgl-chain-highlight.png`（1600×966~1000，headless Edge + SwiftShader，quality=low）；同时复制到 `artifacts/unity/shots-final/task14-webgl-*.png` / `task19-webgl-*.png` |
+| manifest（几何/链/层级/选择） | `webgl-shots-manifest.json`：`nodes=65/edges=55/arms=5`，`layout="v1|5|default-workspace:7|FCA:44|music:5|大肥鱼帮我赚钱:1|default:8"`（v1 冻结格式）；`align_mean=0.477 / p95=0.890 / max=1.222 ×臂宽`；`chainCount=53 / chainMultiNodeCount=1 / chainSummary="FCA:13" / chainSameArmAll=true`；`chain_edges=11 / chain_pairs_expected=11 / chain_pairs_missing=0`；`related_pairs=1 / related_pairs_missing_edges=1`（折叠子节点隐藏端点）；`hierarchyParents=1/hierarchyChildren=1`，before→after `expandedParents 0→1 / visibleChildren 0→1`；`chain_test.passed=true`（12 节点链快照，selectedChainIds=12，highlightedChainSize=12）；`selection_test.passed=true`（select + clear 事件均收到） |
+| 选择事件示例 | `{"id":"mem_58403…","kind":"memory","title":"Agent 思考节点 · 第 2 回合","memoryType":"procedural","arm":"default-workspace","importance":0.55,"occurredAt":"","selected":true,"clear":false,"chainIds":["mem_58403…"],"chainSize":1}`；链成员示例：`{"id":"mem_cfd5…","chainIds":[…12 ids…],"chainSize":12}`；clear：`{"id":"","selected":false,"clear":true,"chainIds":[],"chainSize":0}` |
 | 控制台/异常日志 | `artifacts/unity/webgl-shots/logs/webgl-console.log`、`webgl-browser-log.log`、`webgl-exceptions.log`（空） |
 | token 安全 | manifest URL 与静态服务日志已脱敏；全 `artifacts/unity` 扫描无明文 token |
-| 桌面侧联调 | desktop-integration：真实 Electron + Unity WebGL 双向选中 **最终构建复验 8/8 PASS**（`artifacts/reports/desktop-ui/final-sync-report.json`，含 `build.expected_built_at_utc=2026-11-12T16:57:30.8839409Z`；截图 final-unity-to-electron / final-bidirectional / final-clear-sync）。验收注意：父节点展开后 Unity 回推 id 可能变化，桌面侧以“settle 后连续 2 次采样两端一致”断言（正常展开不视为失败）。 |
+| 桌面侧联调 | desktop-integration：①16:57 冻结版：`artifacts/reports/desktop-ui/final-sync-report.json` **8/8 PASS**（含 `build.expected_built_at_utc=2026-11-12T16:57:30.8839409Z`；截图 final-unity-to-electron / final-bidirectional / final-clear-sync）；②task-19 版（17:27）：`task19-sync-report.json` **9/9 PASS**（新增 `task19_select_payload_has_chain_fields`，实测 payload `chainIds`/`chainSize`，证据用 `task19-*` 独立文件、未覆盖 16:57 证据）；③**v0.4.0 版（Unity 6+URP，18:15:40.9340094Z）：`v040-sync-report.json` 11/11 PASS**（build 身份 `unity_version=6000.0.23f1`/`render_pipeline=urp`/`urp_asset=FCANebulaURP`/`total_errors=0`；截图 `v040-unity-to-electron.png`/`v040-bidirectional.png`/`v040-clear-sync.png`；**打包/验收 `expected_built_at_utc=2026-11-12T18:15:40.9340094Z`**）。证据均独立命名、不覆盖历史。验收注意：父节点展开后 Unity 回推 id 可能变化，桌面侧以“settle 后连续 2 次采样两端一致”断言（正常展开不视为失败）。 |
 
 > 布局冻结说明：旋臂几何参数与 `layout` signature 保持 v1 格式；节点沿臂次序因“同一链连续排布”要求而调整（用户明确允许），臂分配仍由 workspace/链投票决定。
 
@@ -890,4 +905,89 @@ node unity/FCANebula/scripts/capture-webgl-cdp.mjs `
 
 - standalone（`artifacts/unity/FCANebula/FCANebula.exe`）仅作为**开发/备用**：可独立窗口运行、支持 CLI 参数与自动截图（`ScreenshotRunner`），便于脱离 Electron 调渲染参数；
 - WebGL 为 **Electron 内嵌主路径**；两者共享同一套场景/布局/着色器代码，区别仅在：配置来源（CLI/token 文件 vs URL query）、HUD 字体（系统字体 vs 内置 Noto）、截图方式（ScreenCapture vs 页面 CDP）、部分平台分支（`#if UNITY_WEBGL`）。
+
+---
+
+## 12. Unity 6 + URP 升级（v0.4.0 最终构建，task-20）
+
+> 本节为 **v0.4.0 最终交付口径**；§4/§5/§11 中 Built-in / Unity 2022.3 的描述保留为历史与回退参考（v0.3.x 已被本构建取代）。
+
+### 12.1 环境与包
+
+| 项 | 值 |
+|---|---|
+| 编辑器 | `D:\Unity\Hub\Editor\6000.0.23f1\Editor\Unity.exe`（`6000.0.23f1_1c4764c07fb4`） |
+| WebGL 模块 | `Editor\Data\PlaybackEngines\WebGLSupport` 存在 |
+| URP 包 | `com.unity.render-pipelines.universal@17.0.3`（**Unity 6 编辑器 BuiltInPackages 内置**，无需下载）；依赖 core/shadergraph/universal-config 同版本自动解析 |
+| License | batchmode 正常（`-createProject`/bootstrap/build 均 exit 0）；`LicensingClient signature` 警告不影响构建 |
+| 项目升级 | `ProjectVersion.txt` → `6000.0.23f1`；首次打开自动升级资产（0 errors，仅 `NebulaApp` 2 个 CS0414 警告） |
+
+### 12.2 URP 资产与后处理
+
+- 资产（Editor 脚本 `Assets/Editor/URPSetup.cs` 自动创建）：
+  - `Assets/Settings/FCANebulaURP.asset`（`UniversalRenderPipelineAsset`，**HDR on、MSAA 4x、RenderScale 1.0、PostProcessing on**）
+  - `Assets/Settings/FCANebulaURPRenderer.asset`（`UniversalRendererData`，绑定 `PostProcessData` 包内资源）
+  - `Assets/Settings/FCANebulaGlobalVolume.asset`（`VolumeProfile`）
+- GraphicsSettings/QualitySettings 均指向 `FCANebulaURP`；`URPSetup.ConfigureProject()` 在 Bootstrap、`BuildScript.BuildWebGL` 中都会重新确保配置。
+- 相机：`UniversalAdditionalCameraData`（`renderPostProcessing=true`、FXAA、关闭阴影）；Global Volume(`isGlobal=true, priority=0`)。
+- Volume 参数（HDRP 观感目标，WebGL 友好）：
+  | Override | 参数 |
+  |---|---|
+  | Bloom | intensity **1.0**、threshold **1.0**、scatter 0.55、highQualityFiltering=false |
+  | Tonemapping | mode **ACES** |
+  | Color Adjustments | postExposure **+0.15**、contrast **+8**、saturation **+6**、colorFilter 暖白 (1, .985, .96) |
+  | Vignette | intensity 0.20、smoothness 0.42 |
+  | Film Grain | Thin1、intensity 0.10、response 0.8 |
+
+### 12.3 Built-in → URP 渲染差异与适配
+
+1. **自定义后处理路径禁用**：`NebulaFieldRenderer.OnRenderImage` 在 `GraphicsSettings.currentRenderPipeline != null`（URP）时直接 `Graphics.Blit(source,destination)` 返回；bloom/tonemap/vignette/grain 改由 URP Volume 后处理完成。Built-in 回退代码保留（未删除 `NebulaPost.shader`，仅 URP 下不执行）。
+2. **自定义 Shader**：`NebulaVolume`（相机子 near-plane quad，Background queue）、`NodeStar`、`EdgeFilament` 三个 pass 增加 `Tags { "LightMode"="UniversalForward" }`，URP 下正常绘制；`NebulaPost` 在 URP 下不使用。
+3. **射线星云 quad 保留**：不依赖 OnRenderImage，URP 下仍渲染（`LateUpdate` 每帧更新近平面 quad 尺寸，因为 URP 不调用 `OnPreCull`）。
+4. **视觉变化（如实）**：URP HDR+ACES+Bloom 使整体更亮、眩光更强、颜色更饱和（HDRP 风格）；这与 Built-in 截图不同，属于管线/后处理差异，不是布局变化。旋臂布局/节点位置仍冻结（signature 保持 v1 格式）。
+5. **HDRP 为何不用**：HDRP 不支持 WebGL；Unity 6 + URP 是能与 Electron iframe 内嵌兼容的官方方案，后处理用 URP Volume 近似 HDRP 观感。
+
+### 12.4 Unity 6 WebGL 构建（最终口径）
+
+```powershell
+$U = 'D:\Unity\Hub\Editor\6000.0.23f1\Editor\Unity.exe'
+# Bootstrap（材质/场景/URP 资产；每次构建前 BuildWebGL 也会自动确保 URP）
+& $U -batchmode -quit -accept-apiupdate -projectPath unity/FCANebula `
+  -executeMethod FCANebula.EditorTools.ProjectBootstrap.BootstrapAll -logFile D:\FCA\_scratch\unity6\bootstrap6.log
+# WebGL 构建（必须 -buildTarget WebGL）
+& $U -batchmode -quit -buildTarget WebGL -accept-apiupdate -projectPath unity/FCANebula `
+  -executeMethod FCANebula.EditorTools.BuildScript.BuildWebGL -logFile D:\FCA\_scratch\unity6\webgl-build6b.log
+```
+
+| 项 | 值 |
+|---|---|
+| 产物 | `artifacts/unity/FCANebulaWebGL/`（index.html + Build/*.wasm/.data/.framework.js + TemplateData + build-info） |
+| `fca-webgl-build-info.json` | `unity_version=6000.0.23f1`、`render_pipeline="urp"`、`urp_asset="FCANebulaURP"`、`features=["urp","chain-links","chain-same-arm","chain-highlight","hierarchy-fold","selection-bridge"]`、`urp/chain_links/...=true`、`built_at_utc=2026-11-12T18:15:40.9340094Z`、`total_bytes=66,009,123`、`total_errors=0` |
+| 构建日志 | `D:\FCA\_scratch\unity6\bootstrap6.log` / `webgl-build6b.log`（`Build Finished, Result: Success`，0 errors；构建约 5m44s 首次 / 2m10s 增量） |
+| 体积变化 | Built-in 约 26 MB → URP 约 **66 MB**（URP shader 变体/后处理资源增大；compression=disabled 仍是本地服务最稳配置；Electron 本地加载可接受，若需减小可后续开 gzip） |
+| 契约 | 与 Built-in 版**完全一致**：iframe URL 参数、`fca-unity-select`（含 `chainIds/chainSize`）、父→iframe `fca-unity-command`+ack、`select/clear/focus/expand/collapse/highlight-chain/select-chain`、路径不变 |
+
+### 12.5 验证（真实 Runtime，Unity 6/URP 构建）
+
+- WebGL 独立浏览器（headless Edge + SwiftShader，`quality=low`）：`artifacts/unity/webgl-shots/` 真实截图 + `webgl-shots-manifest.json`，关键断言（2026-11-12 采集，真实 live 数据）：
+  - `unity_version="6000.0.23f1"`、`render_pipeline="urp"`、`urp_asset="FCANebulaURP"`、`built_at_utc="2026-11-12T18:15:40.9340094Z"`；
+  - `nodes=74 / edges=64 / arms=5`，`layout="v1|5|default-workspace:7|FCA:53|music:5|大肥鱼帮我赚钱:1|default:8"`（布局冻结 v1）；
+  - `align_mean=0.479 / p95=0.897 / max=1.239 ×臂宽`（冻结 jitter 如实记录）；
+  - `chainCount=54 / chainMultiNodeCount=1 / chainSummary="FCA:21" / chainSameArmAll=true`；`chain_edges=19 / chain_pairs_expected=19 / chain_pairs_missing=0`；
+  - `chain_test.passed=true`（21 节点链，selectedChainIds=21，stateHighlightedChainSize=21）；
+  - `selection_test.passed=true`（page→Unity select + Unity→page `fca-unity-select` + clear，payload 含 `chainIds`/`chainSize`）；
+  - `hierarchy before→after expandedParents 0→1 / visibleChildren 0→1`；`hierarchyParents=1/hierarchyChildren=1`；
+  - `related_pairs=1 / related_pairs_missing_edges=1`（折叠子节点隐藏端点，预期行为）。
+- Electron 内嵌：desktop-integration 已用 v0.4.0 构建跑真实双向联调 **11/11 PASS**：`artifacts/reports/desktop-ui/v040-sync-report.json`（`pass=true`，`build.expected_built_at_utc=2026-11-12T18:15:40.9340094Z`；`unity_version=6000.0.23f1`、`render_pipeline=urp`、`urp_asset=FCANebulaURP`、`total_errors=0`）；截图 `v040-unity-to-electron.png` / `v040-bidirectional.png` / `v040-clear-sync.png`（独立命名，未覆盖 16:57/17:27 证据）。断言覆盖：bridge 初始化、`fca-unity-select`、Unity→Electron 右栏、chainIds/chainSize、Electron→Unity 选中回推、模板 ack、双向 clear、画布点击、无异常。注：build-info 的 `total_bytes=66,009,123` 是**写 build-info 之前**的目录测量值（不含 build-info 自身约 1.8KB），整目录实测约 **66,010,923 B**（desktop 报告的 `total_bytes` 口径为整目录）。
+- 视觉验收图：`webgl-view-0/1/2`、`webgl-chain-closeup`、`webgl-chain-highlight`、`webgl-hierarchy-before/after`（HUD 右上显示 “Unity 6 · URP”）；v0.4.0 副本在 `artifacts/unity/shots-final/v040-*` + `v040-evidence.json`。
+
+### 12.6 限制（如实）
+
+1. **66MB**：URP 资源与 shader 变体使 WebGL 体积较 Built-in 版增大（26→66MB），首次 iframe 加载时间增加；compression=disabled 未改（服务端简单/确定性优先），如发布需要更小可开 gzip/brotli。
+2. **URP 观感变化**：HDR+ACES+Bloom 下画面更亮/更饱和、眩光更强；与 Built-in 截图不同，属预期管线差异；未做逐像素等价承诺。
+3. **自定义 NebulaPost 不再使用**：URP 下由 Volume 后处理替代；Built-in 回退路径保留但不在 v0.4.0 产物中执行。
+4. **SwiftShader 截图**：quality=low、软件 WebGL；真实 GPU 可用 `medium/high`。URP 在 SwiftShader 下首帧较慢（截图脚本超时 420s 已适配）。
+5. **URP 包版本**：Unity 6 内置 17.0.3；若换编辑器小版本，需重新解析/验证（内置包，无网络依赖）。
+6. **布局冻结不变**：本次只改渲染管线/后处理/材质/shader/连线/高亮；布局 signature 仍 v1，节点坐标不因管线升级变化（截图数据与 task-19 同源）。
+7. **HDRP 不支持 WebGL**：这是选择 URP 的原因；HDRP 的 volumetric/SSGI 等效果未使用，避免伪造 HDRP 效果。
 

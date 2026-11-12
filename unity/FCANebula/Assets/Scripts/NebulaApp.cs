@@ -6,6 +6,7 @@
 
 using System;
 using UnityEngine;
+using UnityEngine.Rendering.Universal;
 
 namespace FCANebula
 {
@@ -29,6 +30,9 @@ namespace FCANebula
         public GraphModel CurrentGraph { get; private set; }
         public LayoutModel CurrentLayout { get; private set; }
         public string CurrentLayoutSignature = "";
+        // task-19: whole-chain highlight state (click a chain node -> highlight all members + links)
+        public string HighlightedChainKey { get; private set; } = "";
+        public int HighlightedChainSize { get; private set; }
         public event Action<LayoutModel, GraphModel> GraphApplied;
 
         bool _initialized;
@@ -187,6 +191,16 @@ namespace FCANebula
             {
                 camera.gameObject.tag = "MainCamera";
             }
+            // Task-20: ensure URP camera data exists (global Volume post-processing needs it).
+            UniversalAdditionalCameraData cameraData = camera.GetComponent<UniversalAdditionalCameraData>();
+            if (cameraData == null)
+            {
+                cameraData = camera.gameObject.AddComponent<UniversalAdditionalCameraData>();
+            }
+            cameraData.renderPostProcessing = true;
+            cameraData.antialiasing = AntialiasingMode.FastApproximateAntialiasing;
+            cameraData.renderShadows = false;
+            camera.allowHDR = true;
             return camera;
         }
 
@@ -207,6 +221,7 @@ namespace FCANebula
                 Nodes.SetNodes(layout);
                 Edges.SetGraph(layout, graph);
                 Hierarchy.OnLayoutApplied(layout);
+                UpdateChainHighlight();
                 CameraRig.FrameLayout(layout);
 
                 if (graph.IsEmpty)
@@ -245,9 +260,58 @@ namespace FCANebula
         /// <summary>Selection bridge: keep Electron's right-hand detail panel in sync (WebGL only).</summary>
         void OnNodeSelectionChanged(LayoutNode node)
         {
+            UpdateChainHighlight();
 #if UNITY_WEBGL && !UNITY_EDITOR
             WebGLBridge.NotifySelection(node, CurrentLayout);
 #endif
+        }
+
+        /// <summary>
+        /// task-19: a selected node with chain size &gt; 1 highlights every node in its chain and
+        /// brightens the chain links. Isolated nodes keep the normal single-node highlight.
+        /// Highlighting never expands folded children or moves any node.
+        /// </summary>
+        public void UpdateChainHighlight()
+        {
+            LayoutNode selected = Nodes != null ? Nodes.SelectedNode : null;
+            string key = "";
+            int size = 0;
+            if (selected != null && selected.ChainSize > 1)
+            {
+                key = selected.ChainKey ?? "";
+                size = selected.ChainSize;
+            }
+            HighlightedChainKey = key;
+            HighlightedChainSize = size;
+            if (Nodes != null) Nodes.SetHighlightedChain(key);
+            if (Edges != null) Edges.SetHighlightedChain(key);
+        }
+
+        /// <summary>
+        /// task-19 click semantics: click a chain node -> select + highlight the whole chain;
+        /// click the same non-parent node again -> clear; clicking an expandable parent still
+        /// toggles its folded sub-agent children (highlight and expansion can co-exist).
+        /// </summary>
+        public void HandleNodeClick(LayoutNode node)
+        {
+            if (Nodes == null) return;
+            if (node == null)
+            {
+                Nodes.ClearSelection();
+                if (Hierarchy != null) Hierarchy.CollapseAll();
+                return;
+            }
+            bool sameSelected = Nodes.SelectedNode != null && ReferenceEquals(Nodes.SelectedNode, node);
+            if (sameSelected && !node.IsParent)
+            {
+                Nodes.ClearSelection();
+                return;
+            }
+            Nodes.Select(node, false);
+            if (node.IsParent && node.ChildIds.Count > 0 && Hierarchy != null)
+            {
+                Hierarchy.Toggle(node.Id);
+            }
         }
 
         /// <summary>Switch quality tier (keys 0-4 in the HUD). Re-applies renderer settings.</summary>
