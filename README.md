@@ -72,8 +72,8 @@ flowchart TD
     D3["logs / backups / exports / config"]
   end
 
-  U --> Desktop
-  A --> Plugin
+  U --> DM
+  A --> PA
   DM --> RM --> API
   RD --> DM
   DM --> UE
@@ -84,7 +84,7 @@ flowchart TD
   API --> AUTH --> MEM --> DB
   MEM --> EV
   EV -- "SSE 实时推送" --> RD
-  EV -- "postMessage" --> Nebula
+  EV -- "postMessage" --> UB
   MEM --> SRCH
   MEM --> LAY
   API --> LLM
